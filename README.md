@@ -1,2 +1,7 @@
 # p3_module_template
-Template repository for PATRIC release engineered modules.
+Gene Tree Service for Bacteria-Viral BRC
+
+For various methods of selecting a set of genes within or across organisms, 
+build a phylogenetic tree.
+
+

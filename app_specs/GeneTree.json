@@ -1,0 +1,78 @@
+{
+    "id": "FeatureTree",
+    "script": "App-FeatureTree",
+    "label": "Feature/Gene Tree",
+    "description": "Estimate phylogeny of gene or other sequence feature",
+    "default_memory": "4G",
+    "parameters": [
+        {
+            "id": "sequences",
+            "label": "Sequence Data Inputs",
+            "required": 1,
+            "allow_multiple": 1,
+            "type": {
+                "name": "string",
+                "data_type": ["Aligned_DNA_FASTA", "Aligned_Protein_FASTA", "Feature_DNA_FASTA", "Feature_Protein_FASTA", "Featue_Group"]
+            }
+        },
+        {
+            "id": "sequence_source",
+            "type" : "enum",
+            "default": "ws",
+            "enum" : ["ws", "upload", "local_file", "feature_group"]
+        },
+        {
+            "id": "aligned_status",
+            "type": "bool",
+            "default": false
+        },
+        {
+            "id": "alphabet",
+            "label": "DNA or Protein",
+            "required": 0,
+            "desc": "Sequence alphabet: DNA or RNA or Protein",
+            "type": "enum",
+            "enum": ["DNA", "Protein"]
+        },
+        {
+            "id": "dna_model",
+            "label": "DNA Model",
+            "required": 0,
+            "default": "GTR",
+            "type": "enum",
+            "enum": ["HKY85", "JC69", "K80", "F81", "F84", "TN93", "GTR"]
+        },
+        {
+            "id": "protein_model",
+            "label": "Protein Model",
+            "required": 0,
+            "default": "LG",
+            "type": "enum",
+            "enum": ["LG", "WAG", "JTT", "MtREV", "Dayhoff", "DCMut", "RtREV", "CpREV", 
+                            "VT", "AB", "Blosum62", "MtMam", "MtArt", "HIVw", "HIVb"]
+        },
+        {
+            "id": "recipe",
+            "label": "FeatureTree recipe",
+            "required": 0,
+            "default": "RAxML",
+            "desc": "Recipe used for FeatureTree analysis",
+            "type": "enum",
+            "enum": ["RAxML", "PhyML"]
+        },
+        {
+            "id": "output_path",
+            "label": "Output Folder",
+            "required": 1,
+            "desc": "Path to which the output will be written.",
+            "type": "folder"
+        },
+        {
+            "id":"output_file",
+            "label":"File Basename",
+            "required": 1,
+            "desc":"Basename for the generated output files.",
+            "type":"wsid"
+        }
+    ]
+}

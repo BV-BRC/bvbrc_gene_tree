@@ -1,0 +1,14 @@
+{
+    "alphabet": "dna",
+    "recipe": "RAxML",
+    "protein_model": "HYK85",
+    "sequences": 
+    [
+        { 
+            "name": "/allan@patricbrc.org/home/gene_tree/Buchnera_acpS_fg", 
+            "data_type": "feature_group"
+        }
+    ],
+    "output_path": "/allan@patricbrc.org/home/gene_tree",
+    "output_file": "Buchnera_acpS_fg_dna_raxml_hky85"
+}
