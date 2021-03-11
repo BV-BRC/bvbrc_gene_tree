@@ -11,6 +11,7 @@ use File::Basename;
 use IPC::Run 'run';
 use JSON;
 use File::Copy ('copy', 'move');
+use P3DataAPI;
 use Bio::KBase::AppService::AppConfig;
 use Bio::KBase::AppService::AppScript;
 use Cwd;
@@ -48,10 +49,13 @@ sub preflight
 
 sub retrieve_sequence_data {
     my ($app, $tmpdir, $params) = @_;
+
+    my $api = P3DataAPI->new;
+    
     #print STDERR "params = $params\n";
     #$param_sequences = @{$param_sequences};
     my $aligned = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{type} =~ /Aligned/i); 
-    my %all_sequences = {};
+    my $all_sequences = {};
     print STDERR "Number of sequence data sets = ", scalar(@{$params->{sequences}}), "\n";
     for my $sequence_item (@{$params->{sequences}}) {
         print STDERR "data item: $sequence_item->{type}, $sequence_item->{filename}\n";
@@ -66,31 +70,33 @@ sub retrieve_sequence_data {
                 }
                 else {
                     chomp;
-                    $all_sequences{$seqid} .= $_
+                    $all_sequences->{$seqid} .= $_
                 }
             }
 
         }
-        elsif ($sequence_item->{type} eq "feature_group" or $sequence_item->{type} eq "feature_ids") {
+	elsif ($sequence_item->{type} eq "feature_group" or $sequence_item->{type} eq "feature_ids") {
             # need to get feature sequences from database 
-            my $seqid_to_md5 = undef;
+
+	    my $feature_ids;
             if ($sequence_item->{type} eq 'feature_group') {
-                $seqid_to_md5 = get_md5_for_feature_group($sequence_item->{filename}, $params->{alphabet});
+		$feature_ids = $api->retrieve_patricids_from_feature_group($sequence_item->{filename});
             }
             else {
-                $seqid_to_md5 = get_md5_for_feature_ids($sequence_item->{sequences}, $params->{alphabet});
+                $feature_ids = $sequence_item->{sequences};
             }
-            print STDERR "Number of md5keys retrieved = ", scalar keys %$seqid_to_md5, "\n";
-            my $unaligned_fasta = get_feature_sequences_by_md5($seqid_to_md5);
-            for my $seqid (sort keys %$unaligned_fasta) {
-                if (defined $all_sequences{$seqid}) {
-                    print STDERR "Duplicate sequence identifier: $seqid\n" }
-                $all_sequences{$seqid} = $unaligned_fasta->{$seqid};
-            }
+	    if ($params->{alphabet} eq 'dna')
+	    {
+		$all_sequences = $api->retrieve_nucleotide_feature_sequence($feature_ids);
+	    }
+	    else
+	    {
+		$all_sequences = $api->retrieve_protein_feature_sequence($feature_ids);
+	    }
         }
-    print STDERR "Number of sequences retrieved = ", scalar keys %all_sequences, "\n";
+	print STDERR "Number of sequences retrieved = ", scalar keys %$all_sequences, "\n";
     }
-    return(\%all_sequences, $aligned);
+    return($all_sequences, $aligned);
 }
 
 sub build_tree {
@@ -98,7 +104,7 @@ sub build_tree {
 
     print "Proc GeneTree build_tree ", Dumper($app_def, $raw_params, $params);
     $global_token = $app->token()->token();
-    print STDERR "Global token = $global_token\n";
+    # print STDERR "Global token = $global_token\n";
     my $time1 = `date`;
 
     my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => 1 );
