@@ -50,32 +50,44 @@ sub retrieve_sequence_data {
     my ($app, $tmpdir, $params) = @_;
     print STDERR "params = $params\n";
     #$param_sequences = @{$param_sequences};
-    my $aligned = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{data_type} =~ /Aligned/i); 
-    my $all_sequences = "";
+    my $aligned = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{type} =~ /Aligned/i); 
+    my %all_sequences = {};
     for my $sequence_item (@{$params->{sequences}}) {
-        print STDERR "data item: $sequence_item->{data_type}, $sequence_item->{name}\n";
-        if ($sequence_item->{data_type} =~ /FASTA/i) {
+        print STDERR "data item: $sequence_item->{type}, $sequence_item->{filename}\n";
+        if ($sequence_item->{type} =~ /FASTA/i) {
             # then it is one of the fasta formats in the workspace
-            $app->workspace->download_file($sequence_item->{name}, "$tmpdir/temp_seq_file.fa", 1, $global_token);
-            $all_sequences .= File::Slurp::slurp("$tmpdir/temp_seq_file.fa")
+            $app->workspace->download_file($sequence_item->{filename}, "$tmpdir/temp_seq_file.fa", 1, $global_token);
+            open INDATA, "$tmpdir/temp_seq_file.fa";
+            my $seqid = '';
+            while (<INDATA>) {
+                if (/^>(\S+)/) {
+                    $seqid = $1
+                }
+                else {
+                    chomp;
+                    $all_sequences{$seqid} .= $_
+                }
+            }
+
         }
-        elsif ($sequence_item->{data_type} eq "feature_group" or $sequence_item->{data_type} eq "feature_ids") {
+        elsif ($sequence_item->{type} eq "feature_group" or $sequence_item->{type} eq "feature_ids") {
             # need to get feature sequences from database 
             my $seqid_to_md5 = undef;
-            if ($sequence_item->{data_type} eq 'feature_group') {
-                $seqid_to_md5 = get_md5_for_feature_group($sequence_item->{name}, $params->{alphabet});
+            if ($sequence_item->{type} eq 'feature_group') {
+                $seqid_to_md5 = get_md5_for_feature_group($sequence_item->{filename}, $params->{alphabet});
             }
             else {
                 $seqid_to_md5 = get_md5_for_feature_ids($sequence_item->{sequences}, $params->{alphabet});
             }
             my $unaligned_fasta = get_feature_sequences_by_md5($seqid_to_md5);
-            for my $seqid (sort keys %$unaligned_fasta)
-            {
-                $all_sequences .= ">$seqid\n%$unaligned_fasta->{$seqid}\n";
+            for my $seqid (sort keys %$unaligned_fasta) {
+                if (defined $all_sequences{$seqid}) {
+                    print STDERR "Duplicate sequence identifier: $seqid\n" }
+                $all_sequences{$seqid} = $unaligned_fasta->{$seqid};
             }
         }
     }
-    return($all_sequences, $aligned);
+    return(\%all_sequences, $aligned);
 }
 
 sub build_tree {
@@ -104,25 +116,29 @@ sub build_tree {
     print STDERR "number of data inputs is " . scalar(@{$params->{sequences}}) . "\n";
     print STDERR "params->{sequences} = $params->{sequences}\n";
     my ($all_sequences, $aligned) = retrieve_sequence_data($app, $tmpdir, $params);
-    print STDERR "Aligned = $aligned, num sequences = " . $all_sequences =~ tr/>/>/ . "\n";
-    my $alignment_file_name = "$tmpdir/aligned_sequences.msa";
+    print STDERR "Aligned = $aligned, num sequences = " . scalar(keys %$all_sequences) . "\n";
+    my $alignment_file_name = "$tmpdir/$params->{output_file}.msa";
     if ($aligned)
     {
         print STDERR "Write aligned seqs to $alignment_file_name\n";
-        File::Slurp::write_file($alignment_file_name, $all_sequences)
+        open ALIGNED_OUT, ">$alignment_file_name";
+        for my $seqid (sort keys %{$all_sequences}) {
+            print ALIGNED_OUT ">$seqid\n$all_sequences->{$seqid}\n"
+        }
     }
     else
     { # write unaligned seqs to file, run aligner (muscle or mafft) [* run trimming program ?? *]
-        open(OUT, ">$tmpdir/unaligned_sequences.fa");
-        print STDERR "Write unaligned seqs to $tmpdir/unaligned_sequences.fa\n";
-        for my $line (split("\n", $all_sequences)) {
-            $line =~ tr/-//d unless $line =~ /^>/; # remove any gap chars
-            print OUT "$line\n"
+        my $unaligned_file_name = "$tmpdir/$params->{output_file}_unaligned.fasta";
+        print STDERR "Write unaligned seqs to $unaligned_file_name\n";
+        open(OUT, ">$unaligned_file_name");
+        for my $seqid (sort keys %$all_sequences) {
+            $all_sequences->{$seqid} =~ tr/-//d;
+            print OUT ">$seqid\n$all_sequences->{$seqid}\n"
         }
-        #push @outputs, ["$tmpdir/$unaligned_seq_file", "txt"]; #file type should be unaligned nt or aa
-        print STDERR "Run muscle on $tmpdir/unaligned_sequences.fa, ouptut to $alignment_file_name\n";
-        run_muscle("$tmpdir/unaligned_sequences.fa", $alignment_file_name);
-        push @outputs, [$alignment_file_name, "aligned_"+lc($params->{alphabet})+"_fasta"];
+        push @outputs, [$unaligned_file_name, "feature_" . lc($params->{alphabet}) . "_fasta"]; #file type should be unaligned nt or aa
+        print STDERR "Run muscle on $unaligned_file_name, ouptut to $alignment_file_name\n";
+        run_muscle($unaligned_file_name, $alignment_file_name);
+        push @outputs, [$alignment_file_name, "aligned_" . lc($params->{alphabet}) . "_fasta"];
     }
     if ($params->{trim_threshold} or $params->{gap_threshold})
     {
@@ -137,7 +153,7 @@ sub build_tree {
         my $trimmed_alignment_file_name = $alignment_file_name;
         $trimmed_alignment_file_name =~ s/\.msa/_trimmed.msa/;
         $alignment->write_fasta($trimmed_alignment_file_name);
-        push @outputs, [$trimmed_alignment_file_name, "aligned_"+lc($params->{alphabet})+"_fasta"];
+        push @outputs, [$trimmed_alignment_file_name, "aligned_" . lc($params->{alphabet}) . "_fasta"];
         $alignment_file_name = $trimmed_alignment_file_name;
     }
     run("echo $tmpdir && ls -ltr $tmpdir");

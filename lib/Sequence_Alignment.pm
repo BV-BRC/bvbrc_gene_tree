@@ -4,7 +4,7 @@ use warnings;
 use List::Util qw(max);
 
 sub new {
-    my ($class, $fh) = @_;
+    my ($class) = @_;
     print(STDERR "in Sequence_Alignment::new\n");
     print(STDERR " class = $class\n");
     print(STDERR " args = ", ", ".join(@_), ".\n");
@@ -16,16 +16,26 @@ sub new {
     $self->{_is_alinged} = 0;
     $self->{_length} = 0;
     $self->{_format} = '';
-    if (defined $fh) {
-        print STDERR "File handle = $fh\n";
-        $self->read_file($fh);
-    }
     return $self;
 }
 
 sub get_ntaxa { my $self = shift; return scalar(@{$self->{_ids}})}
 sub get_length { my $self = shift; return $self->{_length}}
 sub is_aligned { my $self = shift; return $self->{_is_aligned}}
+
+sub instantiate_from_hash { 
+    my $self = shift;
+    my $in_hash = shift;
+    $self->{_seqs} = %{$in_hash};
+    $self->{_ids} = keys %{$in_hash};
+    $self->{_is_aligned} = 1;
+    for my $id ($self->{_ids}) {
+        my $seqlen = length($self->{_seqs}{$id});
+        $self->{_is_aligned} = 0 if $self->{_length} and $seqlen != $self->{_length};
+        $self->{_length} = $seqlen if $seqlen > $self->{_length};
+    }
+    return $self;
+}
 
 sub detect_format {
     my $class = shift;
@@ -163,6 +173,7 @@ sub write_fasta {
   # write out in fasta format
     my $self = shift;
     my $out = shift;
+    my $write_unaligned = shift;
     print STDERR "in write_fasta, ref(out) = ", ref($out), "\n"; 
     my $FH = $out;
     unless (ref($out) and ref($out) eq "GLOB") {
@@ -171,7 +182,10 @@ sub write_fasta {
         $FH = $TEMP;
     }
     foreach my $id (@{$self->{_ids}}) {
-        print $FH ">",$id, "\n", $self->{_seqs}->{$id}, "\n";
+        print $FH ">",$id, "\n";
+        my $seq = $self->{_seqs}->{$id};
+        $seq =~ tr/-//d if $write_unaligned;
+        print "$seq\n";
     }
     if ($out ne $FH) {
         print "closing $FH\n";
