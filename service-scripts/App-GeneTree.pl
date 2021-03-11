@@ -97,9 +97,8 @@ sub build_tree {
     my ($app, $app_def, $raw_params, $params) = @_;
 
     print "Proc GeneTree build_tree ", Dumper($app_def, $raw_params, $params);
-    $global_token = $app->token();
-    $global_token = read_file("/homes/allan/.patric_token");
-    #print STDERR "Global token = $global_token\n";
+    $global_token = $app->token()->token();
+    print STDERR "Global token = $global_token\n";
     my $time1 = `date`;
 
     my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => 1 );
