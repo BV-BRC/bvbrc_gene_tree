@@ -48,10 +48,11 @@ sub preflight
 
 sub retrieve_sequence_data {
     my ($app, $tmpdir, $params) = @_;
-    print STDERR "params = $params\n";
+    #print STDERR "params = $params\n";
     #$param_sequences = @{$param_sequences};
     my $aligned = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{type} =~ /Aligned/i); 
     my %all_sequences = {};
+    print STDERR "Number of sequence data sets = ", scalar(@{$params->{sequences}}), "\n";
     for my $sequence_item (@{$params->{sequences}}) {
         print STDERR "data item: $sequence_item->{type}, $sequence_item->{filename}\n";
         if ($sequence_item->{type} =~ /FASTA/i) {
@@ -79,6 +80,7 @@ sub retrieve_sequence_data {
             else {
                 $seqid_to_md5 = get_md5_for_feature_ids($sequence_item->{sequences}, $params->{alphabet});
             }
+            print STDERR "Number of md5keys retrieved = ", scalar keys %$seqid_to_md5, "\n";
             my $unaligned_fasta = get_feature_sequences_by_md5($seqid_to_md5);
             for my $seqid (sort keys %$unaligned_fasta) {
                 if (defined $all_sequences{$seqid}) {
@@ -86,6 +88,7 @@ sub retrieve_sequence_data {
                 $all_sequences{$seqid} = $unaligned_fasta->{$seqid};
             }
         }
+    print STDERR "Number of sequences retrieved = ", scalar keys %all_sequences, "\n";
     }
     return(\%all_sequences, $aligned);
 }
@@ -99,7 +102,7 @@ sub build_tree {
     #print STDERR "Global token = $global_token\n";
     my $time1 = `date`;
 
-    my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => 0 );
+    my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => 1 );
     system("chmod", "755", "$tmpdir");
     print STDERR "$tmpdir\n";
     #$params = localize_params($tmpdir, $params);

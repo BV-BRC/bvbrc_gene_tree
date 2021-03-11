@@ -11,20 +11,9 @@
             "required": 1,
             "allow_multiple": 1,
             "type": {
-                "name": "string",
+                "filename": "string",
                 "data_type": ["Aligned_DNA_FASTA", "Aligned_Protein_FASTA", "Feature_DNA_FASTA", "Feature_Protein_FASTA", "Featue_Group"]
             }
-        },
-        {
-            "id": "sequence_source",
-            "type" : "enum",
-            "default": "ws",
-            "enum" : ["ws", "upload", "local_file", "feature_group"]
-        },
-        {
-            "id": "aligned_status",
-            "type": "bool",
-            "default": false
         },
         {
             "id": "alphabet",
