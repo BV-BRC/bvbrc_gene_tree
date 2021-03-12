@@ -75,24 +75,21 @@ sub retrieve_sequence_data {
             }
 
         }
-	elsif ($sequence_item->{type} eq "feature_group" or $sequence_item->{type} eq "feature_ids") {
-            # need to get feature sequences from database 
-
-	    my $feature_ids;
+        elsif ($sequence_item->{type} eq "feature_group" or $sequence_item->{type} eq "feature_ids") {
+                # need to get feature sequences from database 
+            my $feature_ids;
             if ($sequence_item->{type} eq 'feature_group') {
-		$feature_ids = $api->retrieve_patricids_from_feature_group($sequence_item->{filename});
+                $feature_ids = $api->retrieve_patricids_from_feature_group($sequence_item->{filename});
             }
             else {
                 $feature_ids = $sequence_item->{sequences};
             }
-	    if ($params->{alphabet} eq 'dna')
-	    {
-		$all_sequences = $api->retrieve_nucleotide_feature_sequence($feature_ids);
-	    }
-	    else
-	    {
-		$all_sequences = $api->retrieve_protein_feature_sequence($feature_ids);
-	    }
+            if ($params->{alphabet} eq 'dna') {
+                $all_sequences = $api->retrieve_nucleotide_feature_sequence($feature_ids);
+            }
+            else {
+                $all_sequences = $api->retrieve_protein_feature_sequence($feature_ids);
+            }
         }
 	print STDERR "Number of sequences retrieved = ", scalar keys %$all_sequences, "\n";
     }
@@ -175,11 +172,15 @@ sub build_tree {
     }
     my $output_name = $params->{output_file};
     my $alphabet = $params->{alphabet};
-    print STDERR "About to call tree program $params->{recipe}\n";
-    if (lc($params->{recipe}) eq 'raxml') {
+    my $recipe = "raxml"; #default
+    if (defined $params->{recipe} and $params->{recipe}) {
+        $recipe = lc($params->{recipe})
+    }
+    print STDERR "About to call tree program $recipe\n";
+    if ($recipe eq 'raxml') {
         my @tree_outputs = run_raxml($alignment_file_name, $alphabet, $model, $output_name, $tmpdir);
         push @outputs, @tree_outputs;
-    } elsif ($params->{recipe} eq 'phyml') {
+    } elsif ($recipe eq 'phyml') {
         open my $ALIGNED, $alignment_file_name or die "could not open aligned fasta";
         my $alignment = new Sequence_Alignment($ALIGNED);
         $alignment_file_name =~ s/\.msa/.phy/;
@@ -187,7 +188,7 @@ sub build_tree {
         my @tree_outputs = run_phyml($alignment_file_name, $alphabet, $model, $output_name, $tmpdir);
         push @outputs, @tree_outputs;
     } else {
-        die "Unrecognized recipe: $params->{recipe} \n";
+        die "Unrecognized recipe: $recipe \n";
     }
     
     print STDERR '\@outputs = '. Dumper(\@outputs);
