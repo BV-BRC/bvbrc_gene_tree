@@ -1,5 +1,5 @@
 {
-    "id": "FeatureTree",
+    "id": "GeneTree",
     "script": "App-FeatureTree",
     "label": "Feature/Gene Tree",
     "description": "Estimate phylogeny of gene or other sequence feature",
