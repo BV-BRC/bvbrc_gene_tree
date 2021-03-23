@@ -1,7 +1,7 @@
 {
     "id": "GeneTree",
-    "script": "App-FeatureTree",
-    "label": "Feature/Gene Tree",
+    "script": "App-GeneTree",
+    "label": "Gene Tree",
     "description": "Estimate phylogeny of gene or other sequence feature",
     "default_memory": "4G",
     "parameters": [
