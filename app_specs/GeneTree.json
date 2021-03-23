@@ -12,7 +12,7 @@
             "allow_multiple": 1,
             "type": {
                 "filename": "string",
-                "data_type": ["Aligned_DNA_FASTA", "Aligned_Protein_FASTA", "Feature_DNA_FASTA", "Feature_Protein_FASTA", "Feature_Group"]
+                "data_type": ["aligned_dna_fasta", "aligned_protein_fasta", "feature_dna_fasta", "feature_protein_fasta", "feature_group"]
             }
         },
         {
