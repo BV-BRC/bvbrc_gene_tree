@@ -84,7 +84,7 @@ sub retrieve_sequence_data {
             else {
                 $feature_ids = $sequence_item->{sequences};
             }
-            if ($params->{alphabet} eq 'dna') {
+            if ($params->{alphabet} eq 'DNA') {
                 $all_sequences = $api->retrieve_nucleotide_feature_sequence($feature_ids);
             }
             else {
