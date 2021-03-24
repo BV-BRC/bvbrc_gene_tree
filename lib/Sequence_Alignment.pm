@@ -4,9 +4,10 @@ use warnings;
 use List::Util qw(max);
 
 sub new {
-    my ($class) = @_;
+    my ($class, $input) = @_;
     print(STDERR "in Sequence_Alignment::new\n");
     print(STDERR " class = $class\n");
+    print(STDERR " input = $input\n");
     print(STDERR " args = ", ", ".join(@_), ".\n");
     my $self = {};
     bless $self, $class;
@@ -16,6 +17,9 @@ sub new {
     $self->{_is_alinged} = 0;
     $self->{_length} = 0;
     $self->{_format} = '';
+    if ($input) {
+        $self->read_file($input)
+    }
     return $self;
 }
 
@@ -58,7 +62,12 @@ sub detect_format {
 sub read_file {
     my $self = shift;
     my $fh = shift;
-    print STDERR "in detect_format, self=$self, fh=$fh\n";
+    if ( ! ref($fh) ) {
+        print STDERR "in read_file, not a file handle, open file $fh\n";
+        my $temp;
+        open $temp, $fh;
+        $fh = $temp;
+    } 
     my $format = shift;
     if (! defined $format)
     {
@@ -185,7 +194,7 @@ sub write_fasta {
         print $FH ">",$id, "\n";
         my $seq = $self->{_seqs}->{$id};
         $seq =~ tr/-//d if $write_unaligned;
-        print "$seq\n";
+        print $FH "$seq\n";
     }
     if ($out ne $FH) {
         print "closing $FH\n";
@@ -201,11 +210,13 @@ sub write_phylip {
     print STDERR "self = $self\n";
     print STDERR "out = $out\n";
     warn "alignment status is $self->{_is_aligned} in write_phylip()" unless $self->{_is_aligned};
-    my $FH = $out;
-    unless (ref($out) and ref($out) eq "GLOB") {
+    my $FH;
+    if (ref($out) and ref($out) eq "GLOB") {
+        $out = $FH
+    }
+    else {
         print STDERR "opening $out for fasta output.\n";
-        open(my $TEMP, ">", $out);
-        $FH = $TEMP;
+        open($FH, ">$out");
     }
     print $FH $self->get_ntaxa(), "  ", $self->get_length(), "\n";
     my $maxIdLength = 0;
@@ -226,19 +237,73 @@ sub write_phylip {
 
 sub calc_column_gap_count {
     my $self = shift;
-    print STDERR "In calc_column_gap_count\n";
+    #print STDERR "In calc_column_gap_count\n";
     my @gap_count;
     $#gap_count = $self->{_length}-1;
     for my $id (@{$self->{_ids}}) {
         my @str_as_array = split('', $self->{_seqs}->{$id});
         for my $i (0 .. $#str_as_array) {
             $gap_count[$i] += $str_as_array[$i] eq '-';
-            #$gap_count[$i] += substr($self->{_seqs}->{$id},$i, 1) eq '-';
         }
     }
     return \@gap_count;
 }
 
+sub calculate_entropy_per_column {
+    my $self = shift;
+    my @column_entropy;
+    for my $column_index (0 .. $self->get_length()) {
+        my %letter_count = ();
+        my $num_valid = 0;
+        for my $id (@{$self->{_ids}}) {
+            my $letter = substr($self->{_seqs}->{$id}, $column_index, 1);
+            unless ($letter eq "-") {
+                $letter_count{$letter}++;
+                $num_valid++
+            }
+        }
+        my $entropy = 0;
+        for my $letter (keys %letter_count) {
+            my $frequency = $letter_count{$letter} / $num_valid;
+            if ($frequency) {
+                $entropy += $frequency * log( 1/$frequency )
+            }
+        }
+        push @column_entropy, $entropy;
+    }
+    return \@column_entropy;
+}
+
+sub write_stats {
+    my $self = shift;
+    my $output = shift;
+    my $gaps_per_seq = $self->calc_row_gap_count();
+    my $worst_seq = undef;
+    my $worst_seq_gaps = 0;
+    my $avg_gaps_per_seq = 0;
+    my $total_gaps = 0;
+    for my $id (keys %$gaps_per_seq) {
+        $avg_gaps_per_seq += $gaps_per_seq->{$id};
+        $total_gaps += $gaps_per_seq->{$id};
+        if ($gaps_per_seq->{$id} > $worst_seq_gaps) {
+            $worst_seq_gaps = $gaps_per_seq->{$id};
+            $worst_seq = $id
+        }
+    $avg_gaps_per_seq /= $self->get_ntaxa();
+
+    }
+    my $per_col_entropy = $self->calculate_entropy_per_column();
+    my $avg_entropy = 0;
+    for my $e (@$per_col_entropy) {
+        $avg_entropy += $e
+    }
+    $avg_entropy /= $self->get_length();
+    print $output "Alignment Statistics\n";
+    print $output "\tNumber of sequences    = ", $self->get_ntaxa(), "\n";
+    print $output "\tAlignment length       = ", $self->get_length(), "\n";
+    print $output "\tProportion gaps        = ", sprintf("%.4f", $total_gaps/$self->get_length()), "\n";
+    print $output "\tAverage column entropy = ", sprintf("%.3f", $avg_entropy), "\n";
+}
 
 sub end_trim {
     # trim gappy ends inward to a minimum occupancy threshold (proportion of non-gap chars)
@@ -259,14 +324,14 @@ sub end_trim {
         $vis2 .= $i % 10;
     }
 
-    print "$vis\n$vis2\n";
+    #print "$vis\n$vis2\n";
     $start++ while ($start < $self->{_length}-1 and $gap_count->[$start] > $max_gaps);
     my $end = $self->{_length}-1;
     $end-- while ($end and $gap_count->[$end] > $max_gaps);
     my $len = $end - $start + 1;
     print "Trim up to $start and after $end\n";
-    print substr($vis, $start, $len), "\n";
-    print substr($vis2, $start, $len), "\n";
+    #print substr($vis, $start, $len), "\n";
+    #print substr($vis2, $start, $len), "\n";
     for my $id (@{$self->{_ids}}) {
             $self->{_seqs}->{$id} = substr($self->{_seqs}->{$id}, $start, $len);
     }

@@ -16,29 +16,33 @@
             }
         },
         {
+            "id": "trim_threshold",
+            "label": "Alignment End-Trimming Threshold",
+            "required": 0,
+            "type": "float"
+        },
+        {
+            "id": "gap_threshold",
+            "label": "Delete Gappy Sequences Threshold",
+            "required": 0,
+            "type": "float"
+        },
+        {
             "id": "alphabet",
             "label": "DNA or Protein",
-            "required": 0,
+            "required": 1,
             "desc": "Sequence alphabet: DNA or RNA or Protein",
             "type": "enum",
             "enum": ["DNA", "Protein"]
         },
         {
-            "id": "dna_model",
-            "label": "DNA Model",
+            "id": "substitution_model",
+            "label": "Substitution Model",
             "required": 0,
-            "default": "GTR",
             "type": "enum",
-            "enum": ["HKY85", "JC69", "K80", "F81", "F84", "TN93", "GTR"]
-        },
-        {
-            "id": "protein_model",
-            "label": "Protein Model",
-            "required": 0,
-            "default": "LG",
-            "type": "enum",
-            "enum": ["LG", "WAG", "JTT", "MtREV", "Dayhoff", "DCMut", "RtREV", "CpREV", 
-                            "VT", "AB", "Blosum62", "MtMam", "MtArt", "HIVw", "HIVb"]
+            "enum": ["HKY85", "JC69", "K80", "F81", "F84", "TN93", "GTR",
+                    "LG", "WAG", "JTT", "MtREV", "Dayhoff", "DCMut", "RtREV", 
+                    "CpREV", "VT", "AB", "Blosum62", "MtMam", "MtArt", "HIVw", "HIVb"]
         },
         {
             "id": "recipe",

@@ -23,7 +23,7 @@ our $global_token;
 
 our $shock_cutoff = 10_000;
 
-my $testing = 1;
+my $testing = 0;
 print "args = ", join("\n", @ARGV), "\n";
 
 my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
@@ -103,20 +103,22 @@ sub build_tree {
     $global_token = $app->token()->token();
     # print STDERR "Global token = $global_token\n";
     my $time1 = `date`;
+    my @outputs; # array of tuples of (filename, filetype)
 
-    my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => 1 );
+    my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => !$testing );
     system("chmod", "755", "$tmpdir");
     print STDERR "$tmpdir\n";
     #$params = localize_params($tmpdir, $params);
     #print "after localize_params:\n", Dumper($params);
     #
-    # Write job description.
-    my $json = JSON::XS->new->pretty(1);
-    my $jdesc = "$tmpdir/jobdesc.json";
-    write_file($jdesc, $json->encode($params));
+    if ($testing) {
+        # Write job description.
+        my $json = JSON::XS->new->pretty(1);
+        my $jdesc = "$tmpdir/jobdesc.json";
+        write_file($jdesc, $json->encode($params));
+        push @outputs, [$jdesc, 'txt']
+    }
     
-
-    my @outputs; # array of tuples of (filename, filetype)
     print STDERR "copy data to temp dir\n";
     print STDERR "number of data inputs is " . scalar(@{$params->{sequences}}) . "\n";
     print STDERR "params->{sequences} = $params->{sequences}\n";
@@ -132,7 +134,7 @@ sub build_tree {
         }
     }
     else
-    { # write unaligned seqs to file, run aligner (muscle or mafft) [* run trimming program ?? *]
+    { # write unaligned seqs to file, run aligner (muscle or mafft) 
         my $unaligned_file_name = "$tmpdir/$params->{output_file}_unaligned.fasta";
         print STDERR "Write unaligned seqs to $unaligned_file_name\n";
         open(OUT, ">$unaligned_file_name");
@@ -147,13 +149,19 @@ sub build_tree {
     }
     if ($params->{trim_threshold} or $params->{gap_threshold})
     {
+        print STDERR "performing trimming on alignment\n";
         open my $ALIGNED, $alignment_file_name or die "could not open aligned fasta";
         my $alignment = new Sequence_Alignment($ALIGNED);
-        if ($params->{trim_threshold}) {
+        $alignment->write_stats(*STDERR);
+        if (exists $params->{trim_threshold} and $params->{trim_threshold} > 0) {
+            print STDERR "performing end-trimming on alignment\n";
             $alignment->end_trim($params->{trim_threshold});
+            $alignment->write_stats(*STDERR);
         }
-        if ($params->{gap_threshold}) {
+        if (exists $params->{gap_threshold} and $params->{gap_threshold} > 0) {
+            print STDERR "deleting sequences with too many gaps\n";
             $alignment->delete_gappy_seqs($params->{gap_threshold});
+            $alignment->write_stats(*STDERR);
         }
         my $trimmed_alignment_file_name = $alignment_file_name;
         $trimmed_alignment_file_name =~ s/\.msa/_trimmed.msa/;
@@ -164,8 +172,8 @@ sub build_tree {
     run("echo $tmpdir && ls -ltr $tmpdir");
 
     my $model = "AUTO"; # default for protein
-    if (lc($params->{alphabet}) eq 'protein' and $params->{protein_model}) {
-        $model = $params->{protein_model}
+    if ($params->{substitution_model}) {
+        $model = $params->{substitution_model}
     }
     elsif ($params->{alphabet} =~ /DNA/i) {
         $model = "GTR"
@@ -251,7 +259,6 @@ sub run_raxml {
     move("RAxML_bestTree.".$output_name, $bestTreeFile);
     push @outputs, ["$tmpdir/$bestTreeFile", 'nwk'];
     push @outputs, ["$tmpdir/RAxML_info.".$output_name, 'txt'];
-    push @outputs, ["$tmpdir/jobdesc.json", 'json'];
 
     chdir($cwd);
     run("echo $tmpdir && ls -ltr $tmpdir");
@@ -286,9 +293,8 @@ sub run_phyml {
     my $treeFile = $alignment_file."_phyml_tree.nwk";
     move($alignment_file."_phyml_tree.txt", $treeFile);
     my $statsFile = $alignment_file."_phyml_stats.txt";
-    push @outputs, ["$tmpdir/$treeFile", 'nwk'];
-    push @outputs, ["$tmpdir/$statsFile", 'txt'];
-    push @outputs, ["$tmpdir/jobdesc.json", 'json'];
+    push @outputs, [$treeFile, 'nwk'];
+    push @outputs, [$statsFile, 'txt'];
 
     chdir($cwd);
     run("echo $tmpdir && ls -ltr $tmpdir");
