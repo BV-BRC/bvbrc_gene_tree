@@ -24,6 +24,7 @@ our $global_token;
 our $shock_cutoff = 10_000;
 
 my $testing = 0;
+$testing = $ENV{"GeneTree_Debug"} if exists $ENV{"GeneTree_Debug"};
 print "args = ", join("\n", @ARGV), "\n";
 
 my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
@@ -79,11 +80,13 @@ sub retrieve_sequence_data {
                 # need to get feature sequences from database 
             my $feature_ids;
             if ($sequence_item->{type} eq 'feature_group') {
+                print STDERR "retrieving ids for feature_group: $sequence_item->{filename}\n" if $testing;
                 $feature_ids = $api->retrieve_patricids_from_feature_group($sequence_item->{filename});
             }
             else {
                 $feature_ids = $sequence_item->{sequences};
             }
+            print STDERR "feature_ids = ", join(", ", @$feature_ids), "\n" if $testing;
             if ($params->{alphabet} eq 'DNA') {
                 $all_sequences = $api->retrieve_nucleotide_feature_sequence($feature_ids);
             }
@@ -120,7 +123,7 @@ sub build_tree {
     }
     
     print STDERR "copy data to temp dir\n";
-    print STDERR "number of data inputs is " . scalar(@{$params->{sequences}}) . "\n";
+    #print STDERR "number of data inputs is " . scalar(@{$params->{sequences}}) . "\n";
     print STDERR "params->{sequences} = $params->{sequences}\n";
     my ($all_sequences, $aligned) = retrieve_sequence_data($app, $tmpdir, $params);
     print STDERR "Aligned = $aligned, num sequences = " . scalar(keys %$all_sequences) . "\n";
