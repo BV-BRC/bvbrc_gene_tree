@@ -23,16 +23,16 @@ our $global_token;
 
 our $shock_cutoff = 10_000;
 
-my $testing = 0;
-$testing = $ENV{"GeneTree_Debug"} if exists $ENV{"GeneTree_Debug"};
-print "args = ", join("\n", @ARGV), "\n";
+my $debug = 0;
+$debug = $ENV{"GeneTree_Debug"} if exists $ENV{"GeneTree_Debug"};
+print STDERR "args = ", join("\n", @ARGV), "\n" if $debug;
+my %details = ("step_sequence" => []); # collect info on sequence of genes
 
 my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
 #my $data_url = "http://www.alpha.patricbrc.org/api";
 
 my $script = Bio::KBase::AppService::AppScript->new(\&build_tree, \&preflight);
 my $rc = $script->run(\@ARGV);
-
 
 sub preflight
 {
@@ -80,13 +80,13 @@ sub retrieve_sequence_data {
                 # need to get feature sequences from database 
             my $feature_ids;
             if ($sequence_item->{type} eq 'feature_group') {
-                print STDERR "retrieving ids for feature_group: $sequence_item->{filename}\n" if $testing;
+                print STDERR "retrieving ids for feature_group: $sequence_item->{filename}\n" if $debug;
                 $feature_ids = $api->retrieve_patricids_from_feature_group($sequence_item->{filename});
             }
             else {
                 $feature_ids = $sequence_item->{sequences};
             }
-            print STDERR "feature_ids = ", join(", ", @$feature_ids), "\n" if $testing;
+            print STDERR "feature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
             if ($params->{alphabet} eq 'DNA') {
                 $all_sequences = $api->retrieve_nucleotide_feature_sequence($feature_ids);
             }
@@ -108,13 +108,13 @@ sub build_tree {
     my $time1 = `date`;
     my @outputs; # array of tuples of (filename, filetype)
 
-    my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => !$testing );
+    my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => !$debug );
     system("chmod", "755", "$tmpdir");
     print STDERR "$tmpdir\n";
     #$params = localize_params($tmpdir, $params);
     #print "after localize_params:\n", Dumper($params);
     #
-    if ($testing) {
+    if ($debug) {
         # Write job description.
         my $json = JSON::XS->new->pretty(1);
         my $jdesc = "$tmpdir/jobdesc.json";
@@ -318,7 +318,7 @@ sub get_md5_for_feature_group {
         $md5_to_patric_id{$md5} = () unless exists($md5_to_patric_id{$md5});
         push @{$md5_to_patric_id{$md5}}, $member->{'patric_id'}
     }
-    if ($testing)
+    if ($debug)
     {
         print "Number of patric IDs from group: ", scalar %md5_to_patric_id, "\n";
         for my $i (0..5) {
@@ -341,7 +341,7 @@ sub get_md5_for_feature_ids {
         $md5_to_patric_id{$md5} = () unless exists($md5_to_patric_id{$md5});
         push @{$md5_to_patric_id{$md5}}, $member->{'patric_id'}
     }
-    if ($testing)
+    if ($debug)
     {
         print "Number of patric IDs from group: ", scalar %md5_to_patric_id, "\n";
         for my $i (0..5) {
@@ -366,7 +366,7 @@ sub get_feature_sequences_by_md5 {
         { # handle potential one-to-many relationship 
             $patric_id_to_sequence{$patric_id} = $sequence;
         }
-        if ($testing and $i < 5) {
+        if ($debug and $i < 5) {
             print STDERR "$md5\t", join(",", @{$md5_to_patric_id->{$md5}}), "\t$sequence\n";
             $i++;
         }
