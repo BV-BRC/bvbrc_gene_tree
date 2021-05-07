@@ -24,9 +24,9 @@ our $global_token;
 our $shock_cutoff = 10_000;
 
 my $debug = 0;
-$debug = $ENV{"GeneTree_Debug"} if exists $ENV{"GeneTree_Debug"};
+$debug = $ENV{"GeneTreeDebug"} if exists $ENV{"GeneTreeDebug"};
 print STDERR "args = ", join("\n", @ARGV), "\n" if $debug;
-my %details = ("step_sequence" => []); # collect info on sequence of genes
+my %details = ("step" => [], "step_stack"= []); # collect info on sequence of genes
 
 my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
 #my $data_url = "http://www.alpha.patricbrc.org/api";
@@ -34,9 +34,17 @@ my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
 my $script = Bio::KBase::AppService::AppScript->new(\&build_tree, \&preflight);
 my $rc = $script->run(\@ARGV);
 
+my $input_sequences = undef;
+my $tmpdir = undef; 
+
 sub preflight
 {
     my($app, $app_def, $raw_params, $params) = @_;
+
+    $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => !$debug );
+    system("chmod", "755", "$tmpdir");
+    print STDERR "$tmpdir\n";
+    my ($all_sequences, $aligned) = retrieve_sequence_data($app, $params);
 
     my $pf = {
 	cpu => 8,
@@ -48,18 +56,41 @@ sub preflight
     return $pf;
 }
 
-sub retrieve_sequence_data {
-    my ($app, $tmpdir, $params) = @_;
+sub start_step {
+    my $name = shift;
+    my %step_details = {name => $name, comments => ()}
+    push @{$details->{step}}, \%step_details;
+    $step_details->{start_time} = time();
+    my $stack_depth = scalar @{$details->{step_stack}};
+    my $current_step = $details->{step_stack}[$stack_depth-1];
+    $step_details->{parent_step} = $current_step;
+    push @{$details->{step_stack}}, $name;
+    return \$step_details
+}
 
+sub end_step {
+    my $name = shift;
+    my $current_step = pop @{$details->{step_stack}};
+    assert($name eq $current_step);
+    my $step_index = scalar @{$details->{step}};
+    my $step_details = $details->{step}[$step_index];
+    $step_details->{end_time} = time();
+}
+
+sub retrieve_sequence_data {
+    my ($app, $params) = @_;
     my $api = P3DataAPI->new;
-    
+    my $step_details = start_step("retrieve_sequence_data");
     #print STDERR "params = $params\n";
     #$param_sequences = @{$param_sequences};
     my $aligned = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{type} =~ /Aligned/i); 
-    my $all_sequences = {};
+    my %all_sequences = {};
     print STDERR "Number of sequence data sets = ", scalar(@{$params->{sequences}}), "\n";
+    push @{$step_details->{comments}}, "number of input sequence sets = " . scalar @{$params->{sequences}};
     for my $sequence_item (@{$params->{sequences}}) {
         print STDERR "data item: $sequence_item->{type}, $sequence_item->{filename}\n";
+        push @{$step_details->{comments}}, "reading $sequence_item->{type} $sequence_item->{filename}";
+        my %item_sequences = {};
         if ($sequence_item->{type} =~ /FASTA/i) {
             # then it is one of the fasta formats in the workspace
             $app->workspace->download_file($sequence_item->{filename}, "$tmpdir/temp_seq_file.fa", 1, $global_token);
@@ -67,17 +98,28 @@ sub retrieve_sequence_data {
             my $seqid = '';
             while (<INDATA>) {
                 if (/^>(\S+)/) {
-                    $seqid = $1
+                    $seqid = $1;
+                    if (exists $item_sequences{$seqid}) {
+                        my $comment = "got non-unique sequence ID $seqid, appending suffix";
+                        push @{$step_details->{comments}}, $comment;
+                        my $suffix = 2;
+                        while (exists $item_sequences{$seqid . "_$suffix"}) {
+                            $suffix++
+                        }
+                        $seqid = $seqid . "_$suffix"
+                    }
                 }
                 else {
                     chomp;
-                    $all_sequences->{$seqid} .= $_
+                    $item_sequences->{$seqid} .= $_
                 }
             }
 
         }
         elsif ($sequence_item->{type} eq "feature_group" or $sequence_item->{type} eq "feature_ids") {
                 # need to get feature sequences from database 
+            my $comment = "retrieving sequences for feature group $sequence_item->{filename}";
+            push @{$step_details->{comments}}, $comment;
             my $feature_ids;
             if ($sequence_item->{type} eq 'feature_group') {
                 print STDERR "retrieving ids for feature_group: $sequence_item->{filename}\n" if $debug;
@@ -88,29 +130,42 @@ sub retrieve_sequence_data {
             }
             print STDERR "feature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
             if ($params->{alphabet} eq 'DNA') {
-                $all_sequences = $api->retrieve_nucleotide_feature_sequence($feature_ids);
+                %item_sequences = %$api->retrieve_nucleotide_feature_sequence($feature_ids);
             }
             else {
-                $all_sequences = $api->retrieve_protein_feature_sequence($feature_ids);
+                %item_sequences = %$api->retrieve_protein_feature_sequence($feature_ids);
             }
         }
-	print STDERR "Number of sequences retrieved = ", scalar keys %$all_sequences, "\n";
+    my $comment = "Number of sequences retrieved = " . scalar keys %item_sequences;
+    push @{$step_details->{comments}}, $comment;
+	print STDERR "$comment\n";
+    for my $seqid (keys %item_sequences) {
+        my $orig_seqid = $seqid;
+        if (exists $item_sequences{$seqid}) {
+            my $comment = "got non-unique sequence ID $seqid, appending suffix";
+            push @{$step_details->{comments}}, $comment;
+            my $suffix = 2;
+            while (exists $item_sequences{$seqid . "_$suffix"}) {
+                $suffix++
+            }
+            $seqid = $seqid . "_$suffix"
+        }
+        $all_sequences{$seqid} = $itme_sequences{$orig_seqid}
     }
+    end_step("retrieve_sequence_data");
     return($all_sequences, $aligned);
 }
 
 sub build_tree {
     my ($app, $app_def, $raw_params, $params) = @_;
 
+    my $step_details = start_step("build_tree");
     print "Proc GeneTree build_tree ", Dumper($app_def, $raw_params, $params);
     $global_token = $app->token()->token();
     # print STDERR "Global token = $global_token\n";
     my $time1 = `date`;
     my @outputs; # array of tuples of (filename, filetype)
 
-    my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => !$debug );
-    system("chmod", "755", "$tmpdir");
-    print STDERR "$tmpdir\n";
     #$params = localize_params($tmpdir, $params);
     #print "after localize_params:\n", Dumper($params);
     #
@@ -125,7 +180,6 @@ sub build_tree {
     print STDERR "copy data to temp dir\n";
     #print STDERR "number of data inputs is " . scalar(@{$params->{sequences}}) . "\n";
     print STDERR "params->{sequences} = $params->{sequences}\n";
-    my ($all_sequences, $aligned) = retrieve_sequence_data($app, $tmpdir, $params);
     print STDERR "Aligned = $aligned, num sequences = " . scalar(keys %$all_sequences) . "\n";
     my $alignment_file_name = "$tmpdir/$params->{output_file}.msa";
     if ($aligned)
@@ -226,6 +280,7 @@ sub build_tree {
     }
     my $time2 = `date`;
     write_output("Start: $time1"."End:   $time2", "$tmpdir/DONE");
+    end_step("build_tree");
 }
 
 sub run_raxml {
