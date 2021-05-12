@@ -26,7 +26,8 @@ our $shock_cutoff = 10_000;
 my $debug = 0;
 $debug = $ENV{"GeneTreeDebug"} if exists $ENV{"GeneTreeDebug"};
 print STDERR "args = ", join("\n", @ARGV), "\n" if $debug;
-my %details = ("step" => [], "step_stack"= []); # collect info on sequence of genes
+our @analysis_step => ();# collect info on sequence of analysis steps
+our @step_stack => (); # for nesting of child steps within parent steps
 
 my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
 #my $data_url = "http://www.alpha.patricbrc.org/api";
@@ -34,18 +35,10 @@ my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
 my $script = Bio::KBase::AppService::AppScript->new(\&build_tree, \&preflight);
 my $rc = $script->run(\@ARGV);
 
-my $input_sequences = undef;
-my $tmpdir = undef; 
-
 sub preflight
 {
     my($app, $app_def, $raw_params, $params) = @_;
-
-    $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => !$debug );
-    system("chmod", "755", "$tmpdir");
-    print STDERR "$tmpdir\n";
-    my ($all_sequences, $aligned) = retrieve_sequence_data($app, $params);
-
+    print STDERR "preflight: num params=", scalar keys %$params, "\n";
     my $pf = {
 	cpu => 8,
 	memory => "128G",
@@ -58,173 +51,224 @@ sub preflight
 
 sub start_step {
     my $name = shift;
-    my %step_details = {name => $name, comments => ()}
-    push @{$details->{step}}, \%step_details;
-    $step_details->{start_time} = time();
-    my $stack_depth = scalar @{$details->{step_stack}};
-    my $current_step = $details->{step_stack}[$stack_depth-1];
-    $step_details->{parent_step} = $current_step;
-    push @{$details->{step_stack}}, $name;
-    return \$step_details
+    my %step_details = {};
+    push @analysis_step, \%step_details;
+    $step_details{name} = $name;
+    $step_details{comments} = ();
+    $step_details{start_time} = time();
+    print STDERR "start_step($step_details{name})\n";
+    my $stack_depth = scalar @step_stack;
+    my $current_step = $step_stack[$stack_depth-1];
+    $step_details{parent_step} = $current_step;
+    push @step_stack, $name;
+    return \@{$step_details{comments}}
 }
 
 sub end_step {
     my $name = shift;
-    my $current_step = pop @{$details->{step_stack}};
-    assert($name eq $current_step);
-    my $step_index = scalar @{$details->{step}};
-    my $step_details = $details->{step}[$step_index];
+    print STDERR "end_step($name)\n";
+    my $current_step = pop @step_stack;
+    unless ($name eq $current_step) {
+        print STDERR "Problem! at end_step name is wrong: $name should be $current_step";
+    }
+    my $step_index = scalar @analysis_step - 1;
+    my $step_details = $analysis_step[$step_index];
     $step_details->{end_time} = time();
 }
 
+sub write_report {
+    my $output_file = shift;
+    print STDERR "write_report()\n";
+    open F, ">$output_file";
+    print F "<HTML>\n<h1>Gene Tree Output</h1>\n";
+    print F "<h2>Analysis Steps</h2>\n";
+    for my $step (@analysis_step) {
+        print F "<h3>$step->{name}</h3>\n";
+        my $duration = $step->{end_time} - $step->{start_time};
+        print F "<p>Start time ", join(" ", localtime($step->{start_time})), "\n";
+        if ($duration > 30) { 
+            print F "<p>Duration ", $duration, " seconds.\n";
+        }
+        print F "<p>Comments: ", scalar @{$step->{comments}}, "\n<ul>\n";
+        for my $comment (@{$step->{comments}}) {
+            print F "<li>$comment\n";
+        }
+        print F "</ul>\n";
+    }
+    print F "</HTML>\n";
+}
+
 sub retrieve_sequence_data {
-    my ($app, $params) = @_;
-    my $api = P3DataAPI->new;
-    my $step_details = start_step("retrieve_sequence_data");
-    #print STDERR "params = $params\n";
-    #$param_sequences = @{$param_sequences};
-    my $aligned = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{type} =~ /Aligned/i); 
-    my %all_sequences = {};
+    my ($app, $params, $api, $tmpdir) = @_;
+    my $step_comments = start_step("retrieve_sequence_data");
+    my ($aligned_state, $any_in_memory) = (0, 0);
+    $aligned_state = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{type} =~ /Aligned/i); 
     print STDERR "Number of sequence data sets = ", scalar(@{$params->{sequences}}), "\n";
-    push @{$step_details->{comments}}, "number of input sequence sets = " . scalar @{$params->{sequences}};
+    push @{$step_comments}, "number of input sequence sets = " . scalar @{$params->{sequences}};
     for my $sequence_item (@{$params->{sequences}}) {
         print STDERR "data item: $sequence_item->{type}, $sequence_item->{filename}\n";
-        push @{$step_details->{comments}}, "reading $sequence_item->{type} $sequence_item->{filename}";
-        my %item_sequences = {};
+        push @{$step_comments}, "reading $sequence_item->{type} $sequence_item->{filename}";
         if ($sequence_item->{type} =~ /FASTA/i) {
             # then it is one of the fasta formats in the workspace
-            $app->workspace->download_file($sequence_item->{filename}, "$tmpdir/temp_seq_file.fa", 1, $global_token);
-            open INDATA, "$tmpdir/temp_seq_file.fa";
-            my $seqid = '';
-            while (<INDATA>) {
-                if (/^>(\S+)/) {
-                    $seqid = $1;
-                    if (exists $item_sequences{$seqid}) {
-                        my $comment = "got non-unique sequence ID $seqid, appending suffix";
-                        push @{$step_details->{comments}}, $comment;
-                        my $suffix = 2;
-                        while (exists $item_sequences{$seqid . "_$suffix"}) {
-                            $suffix++
-                        }
-                        $seqid = $seqid . "_$suffix"
-                    }
-                }
-                else {
-                    chomp;
-                    $item_sequences->{$seqid} .= $_
-                }
-            }
-
+            my $local_file = $sequence_item->{filename};
+            $local_file =~ s/.*\///;
+            print STDERR "About to dowload file $sequence_item->{filename} to $tmpdir/$local_file\n";
+            $app->workspace->download_file($sequence_item->{filename}, "$tmpdir/$local_file", 1, $global_token);
+            $sequence_item->{local_file} = $local_file;
         }
         elsif ($sequence_item->{type} eq "feature_group" or $sequence_item->{type} eq "feature_ids") {
-                # need to get feature sequences from database 
+            # need to get feature sequences from database 
+            $any_in_memory = 1;
             my $comment = "retrieving sequences for feature group $sequence_item->{filename}";
-            push @{$step_details->{comments}}, $comment;
+            push @{$step_comments}, $comment;
             my $feature_ids;
             if ($sequence_item->{type} eq 'feature_group') {
                 print STDERR "retrieving ids for feature_group: $sequence_item->{filename}\n" if $debug;
                 $feature_ids = $api->retrieve_patricids_from_feature_group($sequence_item->{filename});
             }
             else {
-                $feature_ids = $sequence_item->{sequences};
+                $feature_ids = $sequence_item->{sequences}
             }
             print STDERR "feature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
             if ($params->{alphabet} eq 'DNA') {
-                %item_sequences = %$api->retrieve_nucleotide_feature_sequence($feature_ids);
+                $sequence_item->{sequences} = %$api->retrieve_nucleotide_feature_sequence($feature_ids);
             }
             else {
-                %item_sequences = %$api->retrieve_protein_feature_sequence($feature_ids);
+                $sequence_item->{sequences} = %$api->retrieve_protein_feature_sequence($feature_ids);
             }
         }
-    my $comment = "Number of sequences retrieved = " . scalar keys %item_sequences;
-    push @{$step_details->{comments}}, $comment;
-	print STDERR "$comment\n";
-    for my $seqid (keys %item_sequences) {
-        my $orig_seqid = $seqid;
-        if (exists $item_sequences{$seqid}) {
-            my $comment = "got non-unique sequence ID $seqid, appending suffix";
-            push @{$step_details->{comments}}, $comment;
-            my $suffix = 2;
-            while (exists $item_sequences{$seqid . "_$suffix"}) {
-                $suffix++
-            }
-            $seqid = $seqid . "_$suffix"
-        }
-        $all_sequences{$seqid} = $itme_sequences{$orig_seqid}
+        my $comment = "Number of sequences retrieved = " . scalar keys %{$sequence_item->{sequences}};
+        push @{$step_comments}, $comment;
+        print STDERR "$comment\n";
     }
+    my $comment = "aligned = $aligned_state";
+    push @{$step_comments}, $comment;
+    print STDERR "$comment\n";
     end_step("retrieve_sequence_data");
-    return($all_sequences, $aligned);
+    return ($aligned_state, $any_in_memory);
+}
+
+sub merge_sequence_sets {
+    my ($params, $tmpdir) = shift;
+    my $step_comments = start_step("merge_sequence_sets");
+    my $comment = '';
+    # goal is to end up with all sequences written to a single unaligned FASTA file
+    # only needed when multiple input sequence sets are passed
+    for my $seq_item (@{$params->{sequences}}) {
+        if (exists $seq_item->{local_file}) {
+            $comment = "Reads sequences from $seq_item->{local_file}";
+            push @{$step_comments}, $comment;
+            print STDERR "$comment\n";
+            open INDATA, "$tmpdir/$seq_item->{local_file}";
+            my $seqid = '';
+            $seq_item->{sequences} = \{};
+            while (<INDATA>) {
+                if (/^>(\S+)/) {
+                    $seqid = $1;
+                    if (exists $seq_item->{sequences}->{$seqid}) { # fix up non-unique seq identifier
+                        $comment = "got non-unique sequence ID $seqid";
+                        my $suffix = 2;
+                        while (exists $seq_item->{sequences}->{$seqid . "_$suffix"}) {
+                            $suffix++
+                        }
+                        $seqid = $seqid . "_$suffix";
+                        $comment .= ", appending $suffix";
+                        push @{$step_comments}, $comment;
+                    }
+                }
+                else {
+                    chomp;
+                    $seq_item->{sequences}->{$seqid} .= $_
+                }
+            }
+            $comment = "Found " . scalar keys %{$seq_item->{sequences}}, " sequences in $seq_item->{local_file}.";
+            push @{$step_comments}, $comment;
+            print STDERR "$comment\n";
+        }
+    }
+    $comment = "merging all sequences";
+    push @{$step_comments}, $comment;
+    my %all_seqs = ();
+    for my $seq_item (@{$params->{sequences}}) {
+        # each item should now have a hash of sequences
+        for my $seqid (keys %{$seq_item->{sequences}}) {
+            my $orig_seqid = $seqid;
+            if (exists $all_seqs{$seqid}) {
+                $comment = "got non-unique sequence ID $seqid";
+                my $suffix = 2;
+                while (exists $all_seqs{$seqid . "_$suffix"}) {
+                    $suffix++
+                }
+                $seqid = $seqid . "_$suffix";
+                $comment = ", appending $suffix";
+                push @{$step_comments}, $comment;
+            }
+            $all_seqs{$seqid} = $seq_item->{sequences}->{$orig_seqid}
+        }
+    }
+    $comment = "Total number of sequences is ". scalar keys %all_seqs;
+    push @{$step_comments}, $comment;
+    my $outfile = "all_sequences_unaligned.fa";
+    $comment = "write all sequences to $outfile";
+    push @{$step_comments}, $comment;
+    open F, ">$tmpdir/$outfile";
+    for my $seq_id (sort keys %all_seqs) {
+        my $seq = $all_seqs{$seq_id};
+        $seq =~ tr/-//d;
+        $seq =~ tr/\s//d;
+        print F ">$seq_id\n$seq\n";
+    }
+    close F;
+    end_step("merge_sequence_sets");   
+    return $outfile;
 }
 
 sub build_tree {
     my ($app, $app_def, $raw_params, $params) = @_;
 
-    my $step_details = start_step("build_tree");
+    my $time1 = `date`;
+    my $step_comments = start_step("build_tree");
     print "Proc GeneTree build_tree ", Dumper($app_def, $raw_params, $params);
     $global_token = $app->token()->token();
     # print STDERR "Global token = $global_token\n";
-    my $time1 = `date`;
     my @outputs; # array of tuples of (filename, filetype)
+    my $api = P3DataAPI->new;
+    my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => !$debug );
+    system("chmod", "755", "$tmpdir");
+    print STDERR "created temp dir: $tmpdir\n";
+   
+    my ($aligned_state, $any_in_memory) = retrieve_sequence_data($app, $params, $api, $tmpdir);
+    my $unaligned_file = undef;
+    my $aligned_file = undef;
+    if (scalar @{$params->{sequences}} > 1 or $any_in_memory) {
+        $unaligned_file = merge_sequence_sets($params)
+    }
+    elsif (!$aligned_state) {
+        $unaligned_file = $params->{sequences}[0]->{local_file}
+    }
+    if ($unaligned_file) {
+        $aligned_file = $unaligned_file;
+        $aligned_file =~ s/\.{1,6}$//;
+        $aligned_file .= ".afa";
+        run_muscle("$tmpdir/$unaligned_file", "$tmpdir/$aligned_file");
+    }
+    else { 
+        $aligned_file = $params->{sequences}[0]->{local_file} 
+    }
 
     #$params = localize_params($tmpdir, $params);
     #print "after localize_params:\n", Dumper($params);
     #
-    if ($debug) {
-        # Write job description.
-        my $json = JSON::XS->new->pretty(1);
-        my $jdesc = "$tmpdir/jobdesc.json";
-        write_file($jdesc, $json->encode($params));
-        push @outputs, [$jdesc, 'txt']
-    }
-    
-    print STDERR "copy data to temp dir\n";
+    #if ($debug) {
+    #    push @outputs, [$jdesc, 'txt']
+    #}
+
     #print STDERR "number of data inputs is " . scalar(@{$params->{sequences}}) . "\n";
-    print STDERR "params->{sequences} = $params->{sequences}\n";
-    print STDERR "Aligned = $aligned, num sequences = " . scalar(keys %$all_sequences) . "\n";
-    my $alignment_file_name = "$tmpdir/$params->{output_file}.msa";
-    if ($aligned)
-    {
-        print STDERR "Write aligned seqs to $alignment_file_name\n";
-        open ALIGNED_OUT, ">$alignment_file_name";
-        for my $seqid (sort keys %{$all_sequences}) {
-            print ALIGNED_OUT ">$seqid\n$all_sequences->{$seqid}\n"
-        }
-    }
-    else
-    { # write unaligned seqs to file, run aligner (muscle or mafft) 
-        my $unaligned_file_name = "$tmpdir/$params->{output_file}_unaligned.fasta";
-        print STDERR "Write unaligned seqs to $unaligned_file_name\n";
-        open(OUT, ">$unaligned_file_name");
-        for my $seqid (sort keys %$all_sequences) {
-            $all_sequences->{$seqid} =~ tr/-//d;
-            print OUT ">$seqid\n$all_sequences->{$seqid}\n"
-        }
-        push @outputs, [$unaligned_file_name, "feature_" . lc($params->{alphabet}) . "_fasta"]; #file type should be unaligned nt or aa
-        print STDERR "Run muscle on $unaligned_file_name, ouptut to $alignment_file_name\n";
-        run_muscle($unaligned_file_name, $alignment_file_name);
-        push @outputs, [$alignment_file_name, "aligned_" . lc($params->{alphabet}) . "_fasta"];
-    }
     if ($params->{trim_threshold} or $params->{gap_threshold})
     {
-        print STDERR "performing trimming on alignment\n";
-        open my $ALIGNED, $alignment_file_name or die "could not open aligned fasta";
-        my $alignment = new Sequence_Alignment($ALIGNED);
-        $alignment->write_stats(*STDERR);
-        if (exists $params->{trim_threshold} and $params->{trim_threshold} > 0) {
-            print STDERR "performing end-trimming on alignment\n";
-            $alignment->end_trim($params->{trim_threshold});
-            $alignment->write_stats(*STDERR);
-        }
-        if (exists $params->{gap_threshold} and $params->{gap_threshold} > 0) {
-            print STDERR "deleting sequences with too many gaps\n";
-            $alignment->delete_gappy_seqs($params->{gap_threshold});
-            $alignment->write_stats(*STDERR);
-        }
-        my $trimmed_alignment_file_name = $alignment_file_name;
-        $trimmed_alignment_file_name =~ s/\.msa/_trimmed.msa/;
-        $alignment->write_fasta($trimmed_alignment_file_name);
-        push @outputs, [$trimmed_alignment_file_name, "aligned_" . lc($params->{alphabet}) . "_fasta"];
-        $alignment_file_name = $trimmed_alignment_file_name;
+        $aligned_file = trim_alignment($aligned_file, $params, $tmpdir);
+        my $data_type = "aligned_" . lc($params->{alphabet}) . "_fasta";
+        push @outputs, [$aligned_file, $data_type];
     }
     run("echo $tmpdir && ls -ltr $tmpdir");
 
@@ -243,14 +287,14 @@ sub build_tree {
     }
     print STDERR "About to call tree program $recipe\n";
     if ($recipe eq 'raxml') {
-        my @tree_outputs = run_raxml($alignment_file_name, $alphabet, $model, $output_name, $tmpdir);
+        my @tree_outputs = run_raxml($aligned_file, $alphabet, $model, $output_name, $tmpdir);
         push @outputs, @tree_outputs;
     } elsif ($recipe eq 'phyml') {
-        open my $ALIGNED, $alignment_file_name or die "could not open aligned fasta";
+        open my $ALIGNED, $aligned_file or die "could not open aligned fasta";
         my $alignment = new Sequence_Alignment($ALIGNED);
-        $alignment_file_name =~ s/\.msa/.phy/;
-        $alignment->write_phylip($alignment_file_name);
-        my @tree_outputs = run_phyml($alignment_file_name, $alphabet, $model, $output_name, $tmpdir);
+        $aligned_file =~ s/\.msa/.phy/;
+        $alignment->write_phylip($aligned_file);
+        my @tree_outputs = run_phyml($aligned_file, $alphabet, $model, $output_name, $tmpdir);
         push @outputs, @tree_outputs;
     } else {
         die "Unrecognized recipe: $recipe \n";
@@ -278,13 +322,45 @@ sub build_tree {
                        (-s $ofile > $shock_cutoff ? 1 : 0), # use shock for larger files
                        $global_token);
     }
+    write_report("$tmpdir/gene_tree_report.html");
     my $time2 = `date`;
     write_output("Start: $time1"."End:   $time2", "$tmpdir/DONE");
     end_step("build_tree");
 }
 
+sub trim_alignment {
+    my ($aligned_file, $params, $tmpdir) = @_;
+    my $trim_comments = start_step("trim_alignment");
+    my $comment = "performing trimming on alignment";
+    print STDERR "$comment\n";
+    push @{$trim_comments}, $comment;
+    open my $ALIGNED, "$tmpdir/$aligned_file" or die "could not open aligned fasta";
+    my $alignment = new Sequence_Alignment($ALIGNED);
+    $alignment->write_stats(*STDERR);
+    if (exists $params->{trim_threshold} and $params->{trim_threshold} > 0) {
+        $comment = "trim ends of alignment to density "+$params->{trim_threshold};
+        print STDERR "$comment\n";
+        push @{$trim_comments}, $comment;
+        $alignment->end_trim($params->{trim_threshold});
+        $alignment->write_stats(*STDERR);
+    }
+    if (exists $params->{gap_threshold} and $params->{gap_threshold} > 0) {
+        $comment = "deleting sequences with gap proportion greater than "+$params->{gap_threshold};
+        print STDERR "$comment\n";
+        push @{$trim_comments}, $comment;
+        $alignment->delete_gappy_seqs($params->{gap_threshold});
+        $alignment->write_stats(*STDERR);
+    }
+    my $trimmed_alignment = $aligned_file;
+    $trimmed_alignment =~ s/\.msa/_trimmed.msa/;
+    $alignment->write_fasta("$tmpdir/$trimmed_alignment");
+    end_step("trim_alignment");
+    return $trimmed_alignment;
+}
+
 sub run_raxml {
     my ($alignment_file, $alphabet, $model, $output_name, $tmpdir) = @_;
+    my $step_comments = start_step("run_raxml");
     print STDERR "In run_raxml, alignment = $alignment_file\n";
     my $parallel = $ENV{P3_ALLOCATED_CPU};
     $parallel = 2 if $parallel < 2;
@@ -320,12 +396,13 @@ sub run_raxml {
 
     chdir($cwd);
     run("echo $tmpdir && ls -ltr $tmpdir");
-
+    end_step("run_raxml");
     return @outputs;
 }
 
 sub run_phyml {
     my ($alignment_file, $alphabet, $model, $output_name, $tmpdir) = @_;
+    my $step_comments = start_step("run_phyml");
 
     my $cwd = getcwd();
     
@@ -357,6 +434,7 @@ sub run_phyml {
     chdir($cwd);
     run("echo $tmpdir && ls -ltr $tmpdir");
 
+    end_step("run_phyml");
     return @outputs;
 }
 
@@ -431,8 +509,15 @@ sub get_feature_sequences_by_md5 {
 
 sub run_muscle {
     my ($unaligned, $aligned) = @_;
+    print STDERR "run_muscle($unaligned, $aligned)\n";
+    my $step_comments = start_step("run_muscle");
     my $cmd = ["muscle", "-in", $unaligned, "-out", $aligned];
-    return run_cmd($cmd);
+    end_step("run_muscle");
+    print STDERR "run_muscle($unaligned, $aligned)\n";
+    my $step_comments = start_step("run_muscle");
+    my $cmd = ["muscle", "-in", $unaligned, "-out", $aligned];
+    my ($rc, $stdout, $stderr) =  run_cmd($cmd);
+    end_step("run_muscle");
 }
 
 sub curl_text {

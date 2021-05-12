@@ -10,10 +10,8 @@
             "label": "Sequence Data Inputs",
             "required": 1,
             "allow_multiple": 1,
-            "type": {
-                "filename": "string",
-                "data_type": ["aligned_dna_fasta", "aligned_protein_fasta", "feature_dna_fasta", "feature_protein_fasta", "feature_group"]
-            }
+            "filename": "string",
+            "type": ["aligned_dna_fasta", "aligned_protein_fasta", "feature_dna_fasta", "feature_protein_fasta", "feature_group"]
         },
         {
             "id": "trim_threshold",
