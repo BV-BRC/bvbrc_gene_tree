@@ -36,7 +36,8 @@ sub register_tip {
 
 sub list_tips {
     my $self = shift;
-    my $retval = "Number of tips = ", scalar @{$self->{_ids}}, "\n";
+    my $retval = "Number of tips = " . scalar @{$self->{_ids}};
+    $retval .= "\n";
     for my $name (@{$self->{_ids}}) {
         my $node = $self->{_tips}->{$name};
         $retval .= "$name\t$node->{_level}\n";
@@ -69,6 +70,17 @@ sub write_newick {
 sub get_input_newick {
     my $self = shift;
     $self->{_newick}
+}
+
+sub write_phyloXML {
+    my ($self, $metadata) = @_;
+    my $retval = "";
+    $retval .= '<?xml version="1.0" encoding="UTF-8"?>
+<phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.20/phyloxml.xsd" xmlns="http://www.phyloxml.org">
+ <phylogeny rooted="true" rerootable="true">
+';
+    $retval .= $self->{_root}->write_phyloXML($metadata, ' ');
+    $retval .= " </phylogeny>\n</phyloxml>\n";
 }
 
 1
