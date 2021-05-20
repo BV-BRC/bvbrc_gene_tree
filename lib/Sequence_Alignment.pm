@@ -20,12 +20,14 @@ sub new {
     if ($input) {
         $self->read_file($input)
     }
+    print STDERR "new Sequence_Alignment: ids=", $self->{_ids}, "\n";
     return $self;
 }
 
 sub get_ntaxa { my $self = shift; return scalar(@{$self->{_ids}})}
 sub get_length { my $self = shift; return $self->{_length}}
 sub is_aligned { my $self = shift; return $self->{_is_aligned}}
+sub get_ids { my $self = shift; return $self->{_ids}}
 
 sub instantiate_from_hash { 
     my $self = shift;
@@ -64,7 +66,7 @@ sub read_file {
     my $fh = shift;
     if ( ! ref($fh) ) {
         print STDERR "in read_file, not a file handle, open file $fh\n";
-        my $temp;
+        my $temp = undef;
         open $temp, $fh;
         $fh = $temp;
     } 
@@ -129,6 +131,15 @@ sub read_file {
             chomp;
             if (/^>(\S+)/) {
                 $id = $1;
+                my $temp = $id;
+                my $suffix = 1;
+                while (exists $self->{_seqs}{$temp}) {
+                    print STDERR "sequence id $temp exists\n";
+                    $suffix++;
+                    $temp = "${id}_$suffix";
+                    print STDERR "incrementing to $temp\n";
+                }
+                $id = $temp;
                 push @{$self->{_ids}}, $id;
                 #$self->{_annot}{$id} = $2 if $2;
                 $self->{_seqs}{$id} = '';
@@ -215,7 +226,7 @@ sub write_phylip {
         $out = $FH
     }
     else {
-        print STDERR "opening $out for fasta output.\n";
+        print STDERR "opening $out for phylip output.\n";
         open($FH, ">$out");
     }
     print $FH $self->get_ntaxa(), "  ", $self->get_length(), "\n";
@@ -234,6 +245,54 @@ sub write_phylip {
         close $FH  #because we opened it
     } 
 }
+
+sub write_fasta_for_raxml {
+    my $self = shift;
+    my $out = shift;
+    print STDERR "in write_fasta_for_raxml, ref(out) = ", ref($out), "\n"; 
+    my $FH = $out;
+    unless (ref($out) and ref($out) eq "GLOB") {
+        print STDERR "opening $out for fasta output.\n";
+        open(my $TEMP, ">", $out);
+        $FH = $TEMP;
+    }
+    #my $raxml_illegal_chars = ":()[]";
+    my $need_changing = 0;
+    for my $id (@{$self->{_ids}}) {
+        if ($id =~ tr/:()[]/:()[]/) { # counts but doesn't change
+            $need_changing = 1;
+            $self->{_raxml_to_orignal_id} = {};
+            last
+        }
+    }
+    for my $id (@{$self->{_ids}}) {
+        my $seq = $self->{_seqs}->{$id};
+        if ($need_changing) {
+            my $orig = $id;
+            my $changed = $id =~ tr/:()[]/_____/; #replace with underscores
+            if ($changed) {
+                print STDERR "in write_fasta_for_raxml: original=$orig, changed=$id\n";
+                $self->{_raxml_to_original_id}{$id} = $orig;
+            }
+        }
+        print $FH ">$id\n$seq\n";
+    }
+    if ($out ne $FH) {
+        print "closing $FH\n";
+        close $FH  #because we opened it
+    } 
+    return $need_changing;
+}
+
+sub restore_original_ids_in_raxml_tree {
+    my ($self, $newick);
+    return $newick unless exists $self->{_raxml_to_orignal_id};
+    for my $raxml_id (keys %{$self->{_raxml_to_orignal_id}}) {
+        $newick =~ s/$raxml_id/$self->{_raxml_to_orignal_id}{$raxml_id}/;
+    }
+    return $newick
+}
+
 
 sub calc_column_gap_count {
     my $self = shift;
@@ -276,7 +335,6 @@ sub calculate_entropy_per_column {
 
 sub write_stats {
     my $self = shift;
-    my $output = shift;
     my $gaps_per_seq = $self->calc_row_gap_count();
     my $worst_seq = undef;
     my $worst_seq_gaps = 0;
@@ -298,11 +356,13 @@ sub write_stats {
         $avg_entropy += $e
     }
     $avg_entropy /= $self->get_length();
-    print $output "Alignment Statistics\n";
-    print $output "\tNumber of sequences    = ", $self->get_ntaxa(), "\n";
-    print $output "\tAlignment length       = ", $self->get_length(), "\n";
-    print $output "\tProportion gaps        = ", sprintf("%.4f", $total_gaps/$self->get_length()), "\n";
-    print $output "\tAverage column entropy = ", sprintf("%.3f", $avg_entropy), "\n";
+    my $retval = "";
+    $retval .= "Alignment Statistics\n";
+    $retval .= "\tNumber of sequences    = ". $self->get_ntaxa(). "\n";
+    $retval .= "\tAlignment length       = ". $self->get_length(). "\n";
+    $retval .= "\tProportion gaps        = ". sprintf("%.4f", $total_gaps/$self->get_length()). "\n";
+    $retval .= "\tAverage column entropy = ". sprintf("%.3f", $avg_entropy). "\n";
+    return $retval;
 }
 
 sub end_trim {
@@ -313,7 +373,6 @@ sub end_trim {
     ($threshold <= 1.0 and $threshold > 0) or die "threshold must be between 0 and 1";
     my $gap_count = $self->calc_column_gap_count();
     my $max_gaps = (1.0 - $threshold) * $self->get_ntaxa();
-    my $start = 0;
     my $vis = '';
     my $vis2 = '';
     #print "Length of \@gap_count = ", scalar(@$gap_count), ", vs self->length = $self->{_length}\n";
@@ -323,19 +382,22 @@ sub end_trim {
         $vis .= $prop10;
         $vis2 .= $i % 10;
     }
-
     #print "$vis\n$vis2\n";
-    $start++ while ($start < $self->{_length}-1 and $gap_count->[$start] > $max_gaps);
+
+    my $start = 0;
+    $start++ while ($gap_count->[$start] > $max_gaps and $start < $self->{_length}-1);
     my $end = $self->{_length}-1;
     $end-- while ($end and $gap_count->[$end] > $max_gaps);
+    my $num_end_columns_trimmed = $self->{_length} - $end - 1;
     my $len = $end - $start + 1;
-    print "Trim up to $start and after $end\n";
+    print STDERR "Trim up to $start and after $end\n";
     #print substr($vis, $start, $len), "\n";
     #print substr($vis2, $start, $len), "\n";
     for my $id (@{$self->{_ids}}) {
             $self->{_seqs}->{$id} = substr($self->{_seqs}->{$id}, $start, $len);
     }
     $self->{_length} = $len;
+    return ($start, $num_end_columns_trimmed);
 }
 
 sub calc_row_gap_count
@@ -358,17 +420,20 @@ sub delete_gappy_seqs {
     my $gap_count = $self->calc_row_gap_count();
     my $max_gaps = (1.0 - $threshold)*$self->{_length};
     my $index = 0;
+    my @retval;
     for my $id (@{$self->{_ids}}) {
         if ($gap_count->{$id} > $max_gaps) {
             # remove id from list and seq from hash
             delete($self->{_seqs}->{$id});
             splice @{$self->{_ids}}, $index, 1;
             print STDERR "seq $id has $gap_count->{$id} gaps, deleting.\n";
+            push @retval, $id;
         }
         else {
             $index++;
         }
     }
+    return \@retval
 }    
 
 return 1

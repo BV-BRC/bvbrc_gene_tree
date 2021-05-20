@@ -48,7 +48,7 @@ sub parse_newick {
                 $active_quote = $char
             }
         }
-        print STDERR "\t$self->{_level}\t$pos\t$char\t$open\t$active_quote\t$state\n" if $debug;
+        #print STDERR "\t$self->{_level}\t$pos\t$char\t$open\t$active_quote\t$state\n" if $debug;
         if ($state eq 'subclade') {
             if ($active_quote) { #ignode open/close parens and other terminators if in a quoted region
                     $subclade .= $char;
@@ -66,7 +66,7 @@ sub parse_newick {
                 }
                 elsif ($open == 1 and ($char eq ',' or $char eq ')')) {
                     #found separator between subclades or terminator 
-                    print STDERR "Got subclade:\n", $subclade, "\n" if $debug; #$subclade\n";
+                    #print STDERR "Got subclade:\n", $subclade, "\n" if $debug; #$subclade\n";
                     push @subclades, $subclade;
                     $subclade = "";
                 }
@@ -132,6 +132,34 @@ sub write_newick {
 		$retval .= ":$self->{'_branch_length'}"
 	}
     return $retval
+}
+
+sub write_phyloXML {
+    my ($self, $metadata, $indent) = @_;
+
+    my $retval = $indent . "<clade>\n";
+    if (exists $self->{_branch_length}) {
+        $retval .= $indent . " <branch_length>" . $self->{_branch_length} . "</branch_length>\n";
+    }
+	if (exists $self->{'_children'}) {
+		for my $child (@{$self->{'_children'}}) {
+			$retval .= $child->write_phyloXML($metadata, $indent . " ");
+		}
+	}
+    if (exists $self->{'_name'} and $self->{'_name'}) {
+        $retval .= $indent . " <name>$self->{'_name'}</name>\n";
+        #print STDERR "Look for $self->{'_name'} in $metadata: " if $debug;
+        #print STDERR join(', ', keys(%{$metadata})), "\n" if $debug;
+        if (exists $metadata->{$self->{_name}}) {
+            #print STDERR "Found $self->{_name} in metadata, now get key-values.\n" if $debug;
+            for my $key (sort keys %{$metadata->{$self->{_name}}}) {
+                $retval .= $indent . " <property ref=\"bvbrc:$key\" datatype=\"xsd:string\" applies_to=\"node\">";
+                $retval .= $metadata->{$self->{_name}}{$key} . "</property>\n";
+            }
+        }
+    }
+    $retval .= $indent . "</clade>\n";
+    return $retval;
 }
 
 1
