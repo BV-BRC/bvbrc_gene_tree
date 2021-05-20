@@ -49,7 +49,7 @@
             "default": "RAxML",
             "desc": "Recipe used for FeatureTree analysis",
             "type": "enum",
-            "enum": ["RAxML", "PhyML"]
+            "enum": ["RAxML", "PhyML", "FastTree"]
         },
         {
             "id": "output_path",

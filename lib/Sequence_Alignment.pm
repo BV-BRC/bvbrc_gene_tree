@@ -335,7 +335,6 @@ sub calculate_entropy_per_column {
 
 sub write_stats {
     my $self = shift;
-    my $output = shift;
     my $gaps_per_seq = $self->calc_row_gap_count();
     my $worst_seq = undef;
     my $worst_seq_gaps = 0;
@@ -357,11 +356,13 @@ sub write_stats {
         $avg_entropy += $e
     }
     $avg_entropy /= $self->get_length();
-    print $output "Alignment Statistics\n";
-    print $output "\tNumber of sequences    = ", $self->get_ntaxa(), "\n";
-    print $output "\tAlignment length       = ", $self->get_length(), "\n";
-    print $output "\tProportion gaps        = ", sprintf("%.4f", $total_gaps/$self->get_length()), "\n";
-    print $output "\tAverage column entropy = ", sprintf("%.3f", $avg_entropy), "\n";
+    my $retval = "";
+    $retval .= "Alignment Statistics\n";
+    $retval .= "\tNumber of sequences    = ". $self->get_ntaxa(). "\n";
+    $retval .= "\tAlignment length       = ". $self->get_length(). "\n";
+    $retval .= "\tProportion gaps        = ". sprintf("%.4f", $total_gaps/$self->get_length()). "\n";
+    $retval .= "\tAverage column entropy = ". sprintf("%.3f", $avg_entropy). "\n";
+    return $retval;
 }
 
 sub end_trim {
@@ -372,7 +373,6 @@ sub end_trim {
     ($threshold <= 1.0 and $threshold > 0) or die "threshold must be between 0 and 1";
     my $gap_count = $self->calc_column_gap_count();
     my $max_gaps = (1.0 - $threshold) * $self->get_ntaxa();
-    my $start = 0;
     my $vis = '';
     my $vis2 = '';
     #print "Length of \@gap_count = ", scalar(@$gap_count), ", vs self->length = $self->{_length}\n";
@@ -382,19 +382,22 @@ sub end_trim {
         $vis .= $prop10;
         $vis2 .= $i % 10;
     }
-
     #print "$vis\n$vis2\n";
-    $start++ while ($start < $self->{_length}-1 and $gap_count->[$start] > $max_gaps);
+
+    my $start = 0;
+    $start++ while ($gap_count->[$start] > $max_gaps and $start < $self->{_length}-1);
     my $end = $self->{_length}-1;
     $end-- while ($end and $gap_count->[$end] > $max_gaps);
+    my $num_end_columns_trimmed = $self->{_length} - $end - 1;
     my $len = $end - $start + 1;
-    print "Trim up to $start and after $end\n";
+    print STDERR "Trim up to $start and after $end\n";
     #print substr($vis, $start, $len), "\n";
     #print substr($vis2, $start, $len), "\n";
     for my $id (@{$self->{_ids}}) {
             $self->{_seqs}->{$id} = substr($self->{_seqs}->{$id}, $start, $len);
     }
     $self->{_length} = $len;
+    return ($start, $num_end_columns_trimmed);
 }
 
 sub calc_row_gap_count
@@ -417,17 +420,20 @@ sub delete_gappy_seqs {
     my $gap_count = $self->calc_row_gap_count();
     my $max_gaps = (1.0 - $threshold)*$self->{_length};
     my $index = 0;
+    my @retval;
     for my $id (@{$self->{_ids}}) {
         if ($gap_count->{$id} > $max_gaps) {
             # remove id from list and seq from hash
             delete($self->{_seqs}->{$id});
             splice @{$self->{_ids}}, $index, 1;
             print STDERR "seq $id has $gap_count->{$id} gaps, deleting.\n";
+            push @retval, $id;
         }
         else {
             $index++;
         }
     }
+    return \@retval
 }    
 
 return 1
