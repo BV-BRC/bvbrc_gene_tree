@@ -116,8 +116,9 @@ sub write_report {
                   }
               }\n</script>\n";
             print F "Details: <button onclick=\"toggle_$element_name()\">Show/Hide</button>\n";
-            print F "<div id=\"$element_name\" style=\"display:none; background:#AAAAAA\"><pre>\n";
-            print F $step->{details}, "\n</pre></div>\n";
+            print F "<div id=\"$element_name\" style=\"display:none; background:#f0f0f0\" \n";
+            print F "    onclick=\"toggle_$element_name()\">\n";
+            print F "<pre>\n", $step->{details}, "\n</pre></div>\n";
         }
     }
     print F "</HTML>\n";
@@ -454,12 +455,18 @@ sub build_tree {
                 if (exists $genome_metadata->{$genome_id}) {
                     #merge them
                     $feature_metadata->{$feature_id} = ($feature_metadata->{$feature_id}, $genome_metadata->{$genome_id}); 
+                    if ($debug) {
+                        for my $key (keys %{$feature_metadata->{$feature_id}}) {
+                            print SDTDERR "mg  $key $feature_metadata->{$feature_id}->{$key}\n";
+                        }
+                    }
                 }
             }
         }
         end_step("Gather Metadata");
         my ($step_comments, $step_detils) = start_step("Write PhyloXML");
         my $tree = new Phylo_Tree($tree_file);
+        $tree->add_properties($feature_metadata, "BVBRC");
         my $phyloxml_data = $tree->write_phyloXML($feature_metadata);
         my $phyloxml_file = "$tmpdir/$params->{output_file}.xml";
         write_file($phyloxml_file, $phyloxml_data);

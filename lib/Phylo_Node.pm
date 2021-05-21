@@ -8,9 +8,8 @@ sub set_debug { $debug = shift() ? 1 : 0}
 sub new {
     my ($class, $newick, $owner, $level) = @_;
     if ($debug) {
-        print(STDERR "in Phylo_Node constructor\n");
-        print(STDERR " class = $class\n");
-        print(STDERR " input = ", substr($newick, 0, 7), " len=", length($newick), "\n");
+        print(STDERR "in Phylo_Node constructor");
+        print(STDERR " input = ", substr($newick, 0, 7), " len=", length($newick));
         print(STDERR " level = ", $level, ".\n");
     }
     die "need to pass newick string" unless $newick;
@@ -34,7 +33,7 @@ sub parse_newick {
     my $branch_length = "";
     my $state = 'none'; #first subclade, then name, then branch length
     my $open = 0;
-    print STDERR "parse newick:\n$newick\n" if $debug;
+    #print STDERR "parse newick:\n$newick\n" if $debug;
 	for my $char (split('', "$newick;")) { #iterate over each charachter
         $pos++;
         if ($state eq 'none') {
@@ -134,27 +133,50 @@ sub write_newick {
     return $retval
 }
 
-sub write_phyloXML {
-    my ($self, $metadata, $indent) = @_;
+sub add_properties {
+    my ($self, $metadata) = @_;
 
+	if (exists $self->{'_children'}) {
+		for my $child (@{$self->{'_children'}}) {
+			$child->add_properties($metadata);
+		}
+	}
+    if (exists $self->{'_name'} and $self->{'_name'}) {
+        #print STDERR "Look for $self->{'_name'} in $metadata: " if $debug;
+        #print STDERR join(', ', keys(%{$metadata})), "\n" if $debug;
+        my $node_name = $self->{'_name'};
+        if (exists $metadata->{$node_name}) {
+            print STDERR "Found $node_name in metadata, now add key-values.\n" if $debug;
+            $self->{properties} = ();
+            for my $key (keys %{$metadata->{$node_name}}) {
+                my $val = $metadata->{$node_name}{$key};
+                $key = "$metadata->{namespace}:$key" if (exists $metadata->{namespace});
+                $self->{_properties}{$key} = $val;
+                print STDERR "  np  $key $self->{_properties}{$key}\n" if $debug;
+            }
+        }
+    }
+}
+
+sub write_phyloXML {
+    my ($self, $indent) = @_;
+    print STDERR "node:write_phyloXML, self keys = ", join(", ", keys %{$self}) if $debug;
     my $retval = $indent . "<clade>\n";
     if (exists $self->{_branch_length}) {
         $retval .= $indent . " <branch_length>" . $self->{_branch_length} . "</branch_length>\n";
     }
 	if (exists $self->{'_children'}) {
 		for my $child (@{$self->{'_children'}}) {
-			$retval .= $child->write_phyloXML($metadata, $indent . " ");
+			$retval .= $child->write_phyloXML($indent . " ");
 		}
 	}
     if (exists $self->{'_name'} and $self->{'_name'}) {
         $retval .= $indent . " <name>$self->{'_name'}</name>\n";
-        #print STDERR "Look for $self->{'_name'} in $metadata: " if $debug;
-        #print STDERR join(', ', keys(%{$metadata})), "\n" if $debug;
-        if (exists $metadata->{$self->{_name}}) {
-            #print STDERR "Found $self->{_name} in metadata, now get key-values.\n" if $debug;
-            for my $key (sort keys %{$metadata->{$self->{_name}}}) {
-                $retval .= $indent . " <property ref=\"bvbrc:$key\" datatype=\"xsd:string\" applies_to=\"node\">";
-                $retval .= $metadata->{$self->{_name}}{$key} . "</property>\n";
+        if (exists $self->{_properties}) {
+            print STDERR "Properties found: keys = ", join(",", keys %{$self->{_properties}}), "\n" if $debug;
+            for my $key (sort keys %{$self->{_properties}}) {
+                $retval .= $indent . " <property ref=\"$key\" datatype=\"xsd:string\" applies_to=\"node\">";
+                $retval .= $self->{_properties}->{$key} . "</property>\n";
             }
         }
     }
