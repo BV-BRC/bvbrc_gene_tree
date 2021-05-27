@@ -420,7 +420,7 @@ sub delete_gappy_seqs {
     my $gap_count = $self->calc_row_gap_count();
     my $max_gaps = (1.0 - $threshold)*$self->{_length};
     my $index = 0;
-    my @retval;
+    my @retval = ();
     for my $id (@{$self->{_ids}}) {
         if ($gap_count->{$id} > $max_gaps) {
             # remove id from list and seq from hash

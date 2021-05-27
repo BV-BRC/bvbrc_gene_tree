@@ -5,8 +5,8 @@
     "sequences": 
     [
         { 
-            "name": "/allan@patricbrc.org/home/gene_tree/Buchnera_acpS_fg", 
-            "data_type": "feature_group"
+            "filename": "/allan@patricbrc.org/home/gene_tree/Buchnera_acpS_fg", 
+            "type": "feature_group"
         }
     ],
     "output_path": "/allan@patricbrc.org/home/gene_tree",
