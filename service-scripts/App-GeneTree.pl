@@ -246,8 +246,15 @@ sub merge_sequence_sets {
             $all_seqs{$seqid} = $seq_item->{sequences}->{$orig_seqid}
         }
     }
-    $params->{sequences} = [\%all_seqs]; # now only one entry in array, includes all sequences
-    $comment = "Total number of sequences is ". scalar keys %all_seqs;
+    if ($debug) {
+        for my $seqid (keys %all_seqs) {
+            print STDERR "debug: $seqid\n$all_seqs{$seqid}\n";
+        }
+    }
+    my %seq_item = ();
+    $seq_item{sequences} = \%all_seqs;
+    $params->{sequences} = [\%seq_item]; # now only one entry in array, includes all sequences
+    $comment = "Total number of sequences is ". scalar keys %{$params->{sequences}->[0]->{sequences}};
     push @{$step_comments}, $comment;
     print STDERR "$comment\n";
     end_step("Merge Sequence Sets");
