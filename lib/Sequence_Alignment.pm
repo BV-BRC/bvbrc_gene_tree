@@ -3,6 +3,8 @@ use strict;
 use warnings;
 use List::Util qw(max);
 
+our $debug = 0;
+
 sub new {
     my ($class, $input) = @_;
     print(STDERR "in Sequence_Alignment::new\n");
@@ -194,12 +196,13 @@ sub write_fasta {
     my $self = shift;
     my $out = shift;
     my $write_unaligned = shift;
-    print STDERR "in write_fasta, ref(out) = ", ref($out), "\n"; 
+    print STDERR "in write_fasta($out), ref(out) = ", ref($out), "\n"; 
     my $FH = $out;
     unless (ref($out) and ref($out) eq "GLOB") {
         print STDERR "opening $out for fasta output.\n";
-        open(my $TEMP, ">", $out);
-        $FH = $TEMP;
+        open(TEMP, ">", $out);
+        $FH = *TEMP;
+        die "Cannot open file for writing at $out\n" unless $FH;
     }
     foreach my $id (@{$self->{_ids}}) {
         print $FH ">",$id, "\n";
@@ -347,9 +350,9 @@ sub write_stats {
             $worst_seq_gaps = $gaps_per_seq->{$id};
             $worst_seq = $id
         }
+    }
     $avg_gaps_per_seq /= $self->get_ntaxa();
 
-    }
     my $per_col_entropy = $self->calculate_entropy_per_column();
     my $avg_entropy = 0;
     for my $e (@$per_col_entropy) {
@@ -360,7 +363,7 @@ sub write_stats {
     $retval .= "Alignment Statistics\n";
     $retval .= "\tNumber of sequences    = ". $self->get_ntaxa(). "\n";
     $retval .= "\tAlignment length       = ". $self->get_length(). "\n";
-    $retval .= "\tProportion gaps        = ". sprintf("%.4f", $total_gaps/$self->get_length()). "\n";
+    $retval .= "\tProportion gaps        = ". sprintf("%.4f", $avg_gaps_per_seq/$self->get_length()). "\n";
     $retval .= "\tAverage column entropy = ". sprintf("%.3f", $avg_entropy). "\n";
     return $retval;
 }
@@ -415,12 +418,12 @@ sub delete_gappy_seqs {
     # remove gappy sequences below minimum occupancy threshold (proportion of non-gap chars)
     my $self = shift;
     my $threshold = shift;
-    print STDERR "In delete_gappy_seqs($threshold)\n";
+    print STDERR "In delete_gappy_seqs($threshold)\n" if $debug;
     ($threshold <= 1.0 and $threshold > 0) or die "threshold must be between 0 and 1";
     my $gap_count = $self->calc_row_gap_count();
     my $max_gaps = (1.0 - $threshold)*$self->{_length};
     my $index = 0;
-    my @retval;
+    my @retval = ();
     for my $id (@{$self->{_ids}}) {
         if ($gap_count->{$id} > $max_gaps) {
             # remove id from list and seq from hash

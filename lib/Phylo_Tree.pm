@@ -72,14 +72,20 @@ sub get_input_newick {
     $self->{_newick}
 }
 
+sub add_properties {
+    my ($self, $metadata, $namespace) = @_;
+    $metadata->{namespace} = "BVBRC";
+    $self->{_root}->add_properties($metadata);
+}
+
 sub write_phyloXML {
-    my ($self, $metadata) = @_;
+    my ($self) = @_;
     my $retval = "";
     $retval .= '<?xml version="1.0" encoding="UTF-8"?>
 <phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.20/phyloxml.xsd" xmlns="http://www.phyloxml.org">
  <phylogeny rooted="true" rerootable="true">
 ';
-    $retval .= $self->{_root}->write_phyloXML($metadata, ' ');
+    $retval .= $self->{_root}->write_phyloXML(' ');
     $retval .= " </phylogeny>\n</phyloxml>\n";
 }
 
