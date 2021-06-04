@@ -7,7 +7,7 @@ sub set_debug { $debug = shift() ? 1 : 0}
 
 sub new {
     my ($class, $newick, $owner, $level) = @_;
-    if ($debug) {
+    if ($debug > 2) {
         print(STDERR "in Phylo_Node constructor");
         print(STDERR " input = ", substr($newick, 0, 7), " len=", length($newick));
         print(STDERR " level = ", $level, ".\n");
@@ -57,7 +57,7 @@ sub parse_newick {
                     $open++;
                     if ($open == 1) {
                         $self->{_children} = () unless (exists $self->{_children});
-                        print STDERR "  initiate subclade\n" if $debug;
+                        print STDERR "  initiate subclade\n" if $debug > 2;
                     }
                     else { # do not put opening paren on subclade
                         $subclade .= $char
@@ -86,7 +86,7 @@ sub parse_newick {
             elsif ($char eq ';' or $char eq ',' or $char eq ')' or $char eq ':') {
                 $state = 'terminated';
                 $state = 'branch_length' if $char eq ':';
-                print STDERR " name: $node_name,  term = $char\n" if $debug;
+                print STDERR " name: $node_name,  term = $char\n" if $debug > 2;
                 $self->{_name} = $node_name;
                 $self->{_tree}->register_tip($node_name, $self) unless (exists $self->{_children});
             }
@@ -97,7 +97,7 @@ sub parse_newick {
 		elsif ($state eq 'branch_length') {
             if ($char eq ',' or $char eq ';') {
                 $state = 'terminated';
-                print STDERR " bl: $branch_length, term = $char\n" if $debug;
+                print STDERR " bl: $branch_length, term = $char\n" if $debug > 1;
             }
             else {
 				$branch_length .= $char;
@@ -150,6 +150,8 @@ sub add_properties {
             $self->{properties} = ();
             for my $key (keys %{$metadata->{$node_name}}) {
                 my $val = $metadata->{$node_name}{$key};
+                print STDERR "  bp  $key" if $debug;
+                print STDERR " $val\n" if $debug;
                 $key = "$metadata->{namespace}:$key" if (exists $metadata->{namespace});
                 $self->{_properties}{$key} = $val;
                 print STDERR "  np  $key $self->{_properties}{$key}\n" if $debug;
@@ -176,7 +178,7 @@ sub write_phyloXML {
             print STDERR "Properties found: keys = ", join(",", keys %{$self->{_properties}}), "\n" if $debug;
             for my $key (sort keys %{$self->{_properties}}) {
                 $retval .= $indent . " <property ref=\"$key\" datatype=\"xsd:string\" applies_to=\"node\">";
-                $retval .= $self->{_properties}->{$key} . "</property>\n";
+                $retval .= $self->{_properties}{$key} . "</property>\n";
             }
         }
     }

@@ -22,8 +22,9 @@ our $global_token;
 
 our $shock_cutoff = 10_000;
 
-my $debug = 0;
+our $debug = 0;
 $debug = $ENV{"GeneTreeDebug"} if exists $ENV{"GeneTreeDebug"};
+print STDERR "debug = $debug\n" if $debug;
 Phylo_Tree::set_debug($debug); 
 Phylo_Node::set_debug($debug); 
 print STDERR "args = ", join("\n", @ARGV), "\n" if $debug;
@@ -94,9 +95,6 @@ sub write_report {
     for my $step (@analysis_step) {
         print F "<h3>$step->{name}</h3>\n";
         my $duration = $step->{end_time} - $step->{start_time};
-        if ($duration > 10) { 
-            print F "<p>Duration ", $duration, " seconds.\n";
-        }
         if (scalar @{$step->{comments}}) {
             #print F "<p>Comments: ", scalar @{$step->{comments}}, "\n<ul>\n";
             print F "<ul>\n";
@@ -121,6 +119,9 @@ sub write_report {
             print F "    onclick=\"toggle_$element_name()\">\n";
             print F "<pre>\n", $step->{details}, "\n</pre></div>\n";
         }
+        if ($duration > 10) { 
+            print F "<p>Duration ", $duration, " seconds.\n";
+        }
     }
     print F "</HTML>\n";
 }
@@ -133,6 +134,7 @@ sub retrieve_sequence_data {
     $aligned_state = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{type} =~ /Aligned/i); 
     print STDERR "Number of sequence data sets = ", scalar(@{$params->{sequences}}), "\n";
     #push @{$step_comments}, "number of input sequence sets = " . scalar @{$params->{sequences}};
+    my $total_seqs = 0;
     for my $sequence_item (@{$params->{sequences}}) {
         print STDERR "data item: $sequence_item->{type}, $sequence_item->{filename}\n";
         push @{$step_comments}, "reading $sequence_item->{type} $sequence_item->{filename}";
@@ -171,13 +173,19 @@ sub retrieve_sequence_data {
             }
             $num_seqs = scalar keys %{$sequence_item->{sequences}};
         }
-        $comment = "Number of sequences retrieved = $num_seqs";
+        $comment = "number of sequences retrieved: $num_seqs";
         push @{$step_comments}, $comment;
         print STDERR "$comment\n";
+        $total_seqs += $num_seqs;
     }
     $comment = $aligned_state ? "sequences are aligned" : "sequences need aligning";
     push @{$step_comments}, $comment;
     print STDERR "$comment\n";
+    if ($total_seqs < 4) {
+        $comment = "total sequences: $total_seqs, too few to build a tree (minimum 4)";
+        push @{$step_comments}, $comment;
+        print STDERR "$comment\n";
+    }
     end_step("Gather Sequence Data");
     return ($aligned_state, $any_in_memory);
 }
@@ -192,7 +200,7 @@ sub merge_sequence_sets {
     # only needed when multiple input sequence sets are passed
     for my $seq_item (@{$params->{sequences}}) {
         if (exists $seq_item->{local_file}) {
-            $comment = "Reads sequences from $seq_item->{local_file}";
+            $comment = "reads sequences from $seq_item->{local_file}";
             #push @{$step_comments}, $comment;
             print STDERR "$comment\n";
             open INDATA, "$tmpdir/$seq_item->{local_file}";
@@ -217,7 +225,7 @@ sub merge_sequence_sets {
                     $seq_item->{sequences}->{$seqid} .= $_
                 }
             }
-            $comment = "Found " . scalar keys %{$seq_item->{sequences}}, " sequences in $seq_item->{local_file}.";
+            $comment = "found " . scalar keys %{$seq_item->{sequences}}, " sequences in $seq_item->{local_file}.";
             #push @{$step_comments}, $comment;
             print STDERR "$comment\n";
         }
@@ -254,7 +262,7 @@ sub merge_sequence_sets {
     my %seq_item = ();
     $seq_item{sequences} = \%all_seqs;
     $params->{sequences} = [\%seq_item]; # now only one entry in array, includes all sequences
-    $comment = "Total number of sequences is ". scalar keys %{$params->{sequences}->[0]->{sequences}};
+    $comment = "total number of sequences is ". scalar keys %{$params->{sequences}->[0]->{sequences}};
     push @{$step_comments}, $comment;
     print STDERR "$comment\n";
     end_step("Merge Sequence Sets");
@@ -285,7 +293,7 @@ sub build_tree {
     my $api = P3DataAPI->new;
     my $tmpdir = File::Temp->newdir( "/tmp/GeneTree_XXXXX", CLEANUP => !$debug );
     system("chmod", "755", "$tmpdir");
-    print STDERR "created temp dir: $tmpdir\n";
+    print STDERR "created temp dir: $tmpdir, cleanup = ", !$debug, "\n";
    
     my ($aligned_state, $any_in_memory) = retrieve_sequence_data($app, $params, $api, $tmpdir);
     my $unaligned_file = undef;
@@ -296,7 +304,7 @@ sub build_tree {
         $any_in_memory = 1;
     }
     if ($any_in_memory) {
-        $unaligned_file = "$tmpdir/all_sequences_unaligned.fa";
+        $unaligned_file = "$tmpdir/$params->{output_file}_unaligned.fa";
         write_unaligned_sequences_to_file($params->{sequences}[0]->{sequences}, $unaligned_file);
     }
     elsif (!$aligned_state) {
@@ -314,105 +322,116 @@ sub build_tree {
     }
     my $alignment = new Sequence_Alignment($aligned_file);
     my $seq_ids = $alignment->get_ids();
-    print STDERR "seq ids: $seq_ids\n";
-    print STDERR "seq ids: ", join(", ", @{$seq_ids}), "\n";
-    #$params = localize_params($tmpdir, $params);
-    #print "after localize_params:\n", Dumper($params);
-    #
+    print STDERR "num seqs: ", scalar @{$seq_ids}, "\n";
+    print STDERR "seq ids: ", join(", ", @{$seq_ids}), "\n" if $debug;
     #if ($debug) {
     #    push @outputs, [$jdesc, 'txt']
     #}
 
-    #print STDERR "number of data inputs is " . scalar(@{$params->{sequences}}) . "\n";
     if ($params->{trim_threshold} or $params->{gap_threshold})
     {
-        $aligned_file = trim_alignment($aligned_file, $params, $tmpdir);
+        trim_alignment($alignment, $params, $tmpdir);
+        $aligned_file =~ s/.afa//;
+        $aligned_file .= "_trimmed.afa";
+        $alignment->write_fasta($aligned_file);
+        print STDERR "trimmed aligned file written to $aligned_file\n" if $debug;
+        $seq_ids = $alignment->get_ids();
+        print STDERR "num seqs: ", scalar @{$seq_ids}, "\n";
     }
     my $alpha = lc($params->{alphabet});
     push @outputs, [$aligned_file, "aligned_${alpha}_fasta"];
     run("echo $tmpdir && ls -ltr $tmpdir");
     
     my $num_seqs = $alignment->get_ntaxa();
+    my $tree_graphic_file = undef;
 
-    my $model = "LG"; # default for protein
-    if ($params->{substitution_model}) {
-        $model = $params->{substitution_model}
-    }
-    elsif ($params->{protein_model}) {
-        $model = $params->{protein_model}
-    }
-    elsif ($params->{alphabet} =~ /DNA/i) {
-        $model = "GTR"
-    }
-    my $output_name = $params->{output_file};
-    my $alphabet = $params->{alphabet};
-    my $recipe = "raxml"; #default
-    if (defined $params->{recipe} and $params->{recipe}) {
-        $recipe = lc($params->{recipe})
-    }
-    print STDERR "About to call tree program $recipe\n";
-    if ($recipe eq 'raxml') {
-        my $bad_chars = $alignment->write_fasta_for_raxml("$tmpdir/alignment_for_raxml.fa");
-        my @tree_outputs = run_raxml("$tmpdir/alignment_for_raxml.fa", $alphabet, $model, $output_name, $tmpdir);
-        if ($bad_chars) {
-            for my $item (@outputs) {
-                if ($item->[1] eq 'nwk') {
-                    my $newick_file_name = "$tmpdir/$item->[0]";
-                    open F, "+<", $newick_file_name;
-                    my $raxml_newick = "";
-                    while (<F>) {
-                        chomp;
-                        $raxml_newick .= $_
+    if ($num_seqs >= 4) { #need at least 4 seuqences to build a tree
+        my $model = "LG"; # default for protein
+        if ($params->{substitution_model}) {
+            $model = $params->{substitution_model}
+        }
+        elsif ($params->{protein_model}) {
+            $model = $params->{protein_model}
+        }
+        elsif ($params->{alphabet} =~ /DNA/i) {
+            $model = "GTR"
+        }
+        my $output_name = $params->{output_file};
+        my $alphabet = $params->{alphabet};
+        my $recipe = "raxml"; #default
+        if (defined $params->{recipe} and $params->{recipe}) {
+            $recipe = lc($params->{recipe})
+        }
+        print STDERR "About to call tree program $recipe\n";
+        if ($recipe eq 'raxml') {
+            my $bad_chars = $alignment->write_fasta_for_raxml("$tmpdir/alignment_for_raxml.fa");
+            my @tree_outputs = run_raxml("$tmpdir/alignment_for_raxml.fa", $alphabet, $model, $output_name, $tmpdir);
+            if ($bad_chars) {
+                for my $item (@outputs) {
+                    if ($item->[1] eq 'nwk') {
+                        my $newick_file_name = "$tmpdir/$item->[0]";
+                        open F, "+<", $newick_file_name;
+                        my $raxml_newick = "";
+                        while (<F>) {
+                            chomp;
+                            $raxml_newick .= $_
+                        }
+                        my $restored_newick = $alignment->restore_original_ids_in_raxml_tree($raxml_newick);
+                        seek F, 0, 0;
+                        truncate F, 0;
+                        print F $restored_newick;
+                        close F
                     }
-                    my $restored_newick = $alignment->restore_original_ids_in_raxml_tree($raxml_newick);
-                    seek F, 0, 0;
-                    truncate F, 0;
-                    print F $restored_newick;
-                    close F
-                }
 
-                # look for nkw file, revert any changes made to seq_ids for raxml
+                    # look for nkw file, revert any changes made to seq_ids for raxml
+                }
+            }
+
+            push @outputs, @tree_outputs;
+        } elsif ($recipe eq 'phyml') {
+            $aligned_file =~ s/\.msa/.phy/;
+            $alignment->write_phylip($aligned_file);
+            my @tree_outputs = run_phyml($aligned_file, $alphabet, $model, $output_name, $tmpdir);
+            push @outputs, @tree_outputs;
+        } elsif (lc($recipe) eq 'fasttree') {
+            #$alignment->write_fasta($aligned_file);
+            my @tree_outputs = run_fasttree($aligned_file, $alphabet, $model, $output_name, $tmpdir);
+            push @outputs, @tree_outputs;
+        } else {
+            die "Unrecognized recipe: $recipe \n";
+        }
+        # generate tree graphic using figtree
+        my $tree_file = undef;
+        for my $output (@outputs) {
+            my($ofile, $type) = @$output;
+            if ($type eq 'nwk') {
+                $tree_file = $ofile;
+                $tree_graphic_file .= generate_tree_graphic($tree_file, $num_seqs, $tmpdir);
             }
         }
-
-        push @outputs, @tree_outputs;
-    } elsif ($recipe eq 'phyml') {
-        $aligned_file =~ s/\.msa/.phy/;
-        $alignment->write_phylip($aligned_file);
-        my @tree_outputs = run_phyml($aligned_file, $alphabet, $model, $output_name, $tmpdir);
-        push @outputs, @tree_outputs;
-    } elsif (lc($recipe) eq 'fasttree') {
-        $alignment->write_fasta($aligned_file);
-        my @tree_outputs = run_fasttree($aligned_file, $alphabet, $model, $output_name, $tmpdir);
-        push @outputs, @tree_outputs;
-    } else {
-        die "Unrecognized recipe: $recipe \n";
-    }
-    # generate tree graphic using figtree
-    my $tree_file = undef;
-    my $tree_graphic_file = undef;
-    for my $output (@outputs) {
-        my($ofile, $type) = @$output;
-        if ($type eq 'nwk') {
-            $tree_file = $ofile;
-            $tree_graphic_file .= generate_tree_graphic($tree_file, $num_seqs, $tmpdir);
+        if ($tree_file)
+        {  
+            my $seq_ids_ar = $alignment->get_ids();
+            my $feature_fields = ['patric_id', 'genome_id', 'product'];
+            my $genome_fields = ['genome_id','species','host_name','geographic_location','collection_date'];
+            my ($sequence_metadata, $metadata_tsv) = gather_metadata($seq_ids_ar, $feature_fields, $genome_fields); 
+            print "gather_metadata: hash size = " . scalar(keys %{$sequence_metadata}). ", tsv size = " . length($metadata_tsv) . "\n" if $debug;
+            if ($sequence_metadata and $metadata_tsv) {
+                my $metadata_file = "$tmpdir/$params->{output_file}_metadata.txt";
+                write_file($metadata_file, $metadata_tsv);
+                push @outputs, [$metadata_file, "tsv"];
+            }
+            my ($step_comments, $step_info) = start_step("Write PhyloXML");
+            my $tree = new Phylo_Tree($tree_file);
+            if ($sequence_metadata) {
+                $tree->add_properties($sequence_metadata, "BVBRC");
+            }
+            my $phyloxml_data = $tree->write_phyloXML($sequence_metadata);
+            my $phyloxml_file = "$tmpdir/$params->{output_file}.xml";
+            write_file($phyloxml_file, $phyloxml_data);
+            push @outputs, [$phyloxml_file, "phyloxml"];
+            end_step("Write PhyloXML");
         }
-    }
- 
-    if ($tree_file)
-    {  
-        my $seq_ids_ar = $alignment->get_ids();
-        my $feature_fields = ['patric_id', 'genome_id', 'product'];
-        my $genome_fields = ['genome_id','species','host_name','geographic_location','collection_date'];
-        my $sequence_metadata = gather_metadata($seq_ids_ar, $feature_fields, $genome_fields); 
-        my ($step_comments, $step_info) = start_step("Write PhyloXML");
-        my $tree = new Phylo_Tree($tree_file);
-        $tree->add_properties($sequence_metadata, "BVBRC");
-        my $phyloxml_data = $tree->write_phyloXML($sequence_metadata);
-        my $phyloxml_file = "$tmpdir/$params->{output_file}.xml";
-        write_file($phyloxml_file, $phyloxml_data);
-        end_step("Write PhyloXML");
-        push @outputs, [$phyloxml_file, "phyloxml"];
     }
     
     my $html_file = "$tmpdir/$params->{output_file}_gene_tree_report.html";
@@ -456,13 +475,17 @@ sub build_tree {
 sub gather_metadata {
     my ($seq_ids_ar, $feature_fields, $genome_fields) = @_; 
     my ($step_comments, $step_info) = start_step("Gather Metadata");
-    my $comment = "Sequence ids: ". join(", ", @{$seq_ids_ar});
+    my $metadata_tsv = undef;
+    my $comment = "feature ids: ". join(", ", @{$seq_ids_ar});
     push @{$step_comments}, $comment;
     print STDERR "$comment\n"; 
-    $comment = "Feature fields: ". join(", ", @{$feature_fields});
+    $comment = "feature metadata fields: ". join(", ", @{$feature_fields});
     push @{$step_comments}, $comment;
     print STDERR "$comment\n"; 
     my $feature_metadata = get_feature_metadata($seq_ids_ar, $feature_fields);
+    $comment = "number of features with data: " . scalar keys %{$feature_metadata};
+    push @{$step_comments}, $comment;
+    print STDERR "$comment\n"; 
     if ($feature_metadata and scalar keys %{$feature_metadata}) {
         my %genome_ids = ();
         for my $feature_id (keys %{$feature_metadata}) {
@@ -472,87 +495,99 @@ sub gather_metadata {
             }
         }
         my @genome_ids = keys %genome_ids;
-        $comment = "Genome IDs: ". join(", ", @genome_ids);
+        $comment = "genome ids: ". join(", ", @genome_ids);
         push @{$step_comments}, $comment;
         print STDERR "$comment\n"; 
-        $comment = "Genome fields: ". join(", ", @{$genome_fields});
+        $comment = "genome metadata fields: ". join(", ", @{$genome_fields});
         push @{$step_comments}, $comment;
         print STDERR "$comment\n"; 
 
         my $genome_metadata = get_genome_metadata(\@genome_ids);
         for my $feature_id (keys %{$feature_metadata}) {
-            if (exists $feature_metadata->{$feature_id}->{genome_id}) {
-                my $genome_id = $feature_metadata->{$feature_id}->{genome_id};
-                if (exists $genome_metadata->{$genome_id}) {
-                    #merge them
-                    $feature_metadata->{$feature_id} = ($feature_metadata->{$feature_id}, $genome_metadata->{$genome_id}); 
-                    if ($debug) {
-                        for my $key (keys %{$feature_metadata->{$feature_id}}) {
-                            print SDTDERR "mg  $key $feature_metadata->{$feature_id}->{$key}\n";
-                        }
-                    }
+            my $genome_id = $feature_metadata->{$feature_id}{genome_id};
+            if (exists $genome_metadata->{$genome_id}) {
+                #merge them
+                for my $key (keys %{$genome_metadata->{$genome_id}}) {
+                    $feature_metadata->{$feature_id}{$key} = $genome_metadata->{$genome_id}{$key};
+                    print SDTDERR "mg $genome_id $key $feature_metadata->{$feature_id}->{$key}\n" if $debug;
                 }
+                #$feature_metadata->{$feature_id} = ($feature_metadata->{$feature_id}, $genome_metadata->{$genome_id}); 
             }
         }
+        my @fields = @{$feature_fields};
+        for my $genome_field (@{$genome_fields}) {
+            push(@fields, $genome_field) unless grep(/^$genome_field\$/, @fields);
+        }
+        $metadata_tsv = join("\t", "SeqId", @fields) . "\n";
+        for my $id (@{$seq_ids_ar}) {
+            $metadata_tsv .= $id;
+            for my $field (@fields) {
+                my $val = "na";
+                $val = $feature_metadata->{$id}{$field} if exists $feature_metadata->{$id}{$field};
+                $metadata_tsv .= "\t$val";
+            }
+            $metadata_tsv .= "\n";
+        }
+        $step_info->{details} = $metadata_tsv;
     }
     end_step("Gather Metadata");
-    return $feature_metadata;
+    return ($feature_metadata, $metadata_tsv);
 }
 
 sub trim_alignment {
-    my ($aligned_file, $params, $tmpdir) = @_;
+    my ($alignment, $params, $tmpdir) = @_;
     my ($trim_comments, $trim_info) = start_step("Trim Alignment");
     my $comment = "performing trimming on alignment";
     print STDERR "$comment\n";
     #push @{$trim_comments}, $comment;
-    open my $ALIGNED, $aligned_file or die "could not open aligned fasta";
-    my $alignment = new Sequence_Alignment($ALIGNED);
+    #open my $ALIGNED, $aligned_file or die "could not open aligned fasta";
+    #my $alignment = new Sequence_Alignment($ALIGNED);
     $trim_info->{details} = "Before trimming:\n" .  $alignment->write_stats();
     my $alignment_changed = 0;
     if (exists $params->{trim_threshold} and $params->{trim_threshold} > 0) {
-        $comment = "Trim ends of alignment to density " . $params->{trim_threshold};
+        $comment = "trim ends of alignment to density " . $params->{trim_threshold};
         print STDERR "$comment\n";
         push @{$trim_comments}, $comment;
         my ($left_trim_cols, $right_trim_cols) = $alignment->end_trim($params->{trim_threshold});
         if ($left_trim_cols or $right_trim_cols) {
-            $comment = "Ends trimmed: $left_trim_cols columns on left, $right_trim_cols columns on right.";
+            $comment = "ends trimmed: $left_trim_cols columns on left, $right_trim_cols columns on right.";
             print STDERR "$comment\n";
             push @{$trim_comments}, $comment;
             $alignment_changed = 1;
         }
         else {
-            $comment = "No end-columns needed to be trimmed.";
+            $comment = "no end-columns needed to be trimmed";
             push @{$trim_comments}, $comment;
             print STDERR "$comment\n";
         }
     }
     if (exists $params->{gap_threshold} and $params->{gap_threshold} > 0) {
-        $comment = "Delete any sequences with gap proportion greater than ".$params->{gap_threshold};
+        $comment = "delete any sequences with gap proportion greater than ".$params->{gap_threshold};
         print STDERR "$comment\n";
         push @{$trim_comments}, $comment;
         my $deleted_seqs = $alignment->delete_gappy_seqs($params->{gap_threshold});
         if (scalar @$deleted_seqs) {
-            $comment = scalar(@$deleted_seqs) . "gappy sequences deleted: ". join(", ", @$deleted_seqs);
+            $comment = scalar(@$deleted_seqs) . " gappy sequences deleted: ". join(", ", @$deleted_seqs);
             print STDERR "$comment\n";
             push @{$trim_comments}, $comment;
             $alignment_changed = 1;
         }
         else {
-            $comment = "No sequenced needed to be deleted.";
+            $comment = "no sequences needed to be deleted";
             push @{$trim_comments}, $comment;
             print STDERR "$comment\n";
         }
     }
     if ($alignment_changed) {
-        my $trimmed_alignment = $aligned_file;
-        $trimmed_alignment =~ s/(.*)\..+/\1/;
-        $trimmed_alignment .= "_trimmed.msa";
-        $alignment->write_fasta($trimmed_alignment);
-        $aligned_file =  $trimmed_alignment;
         $trim_info->{details} .= "After trimming:\n" . $alignment->write_stats();
     }
+    my $total_seqs = $alignment->get_ntaxa();
+    if ($total_seqs < 4) {
+        $comment = "total sequences: $total_seqs, too few to build a tree (minimum 4)";
+        push @{$trim_comments}, $comment;
+        print STDERR "$comment\n";
+    }
     end_step("Trim Alignment");
-    return $aligned_file 
 }
 
 sub run_raxml {
@@ -665,17 +700,17 @@ sub run_fasttree {
     my $treeFile = $output_name."_fasttree.nwk";
     my @cmd = ("FastTree", "-out", $treeFile);
     if ($alphabet =~ /DNA/i) {
-        push @cmd, "-gtr";
+        push @cmd, "-nt", "-gtr";
     }
     else {
-        $model = 'lg' if $model !~ /LGr|WAG/i;
+        $model = 'lg' if $model !~ /LG|WAG/i;
         $model = lc($model);
         push @cmd, "-$model";
     }
 
-    push @cmd, ($alignment_file);
+    push @cmd, $alignment_file;
     my $comment = join(" ", @cmd);
-    $comment =~ s/$tmpdir//g;
+    #$comment =~ s/$tmpdir//g;
     push @{$step_comments}, $comment; 
     print STDERR $comment . "\n\n";
    
@@ -684,7 +719,7 @@ sub run_fasttree {
     print STDERR "STDOUT:\n$out\n";
     print STDERR "STDERR:\n$err\n";
 
-    $step_info->{details} = $out;
+    $step_info->{details} = $err;
     
     my @outputs;
     my $statsFile = $output_name."_fasttree_stats.txt";
@@ -711,7 +746,8 @@ sub get_feature_metadata {
     my $resp = curl_json($url);
     #print STDERR "response=$resp\n";
     if ( $resp =~ /Error/) {
-        die "Problem! query did not return properly.\n";
+        warn "Problem! query did not return properly: $url\n";
+        return undef;
     }
     my %feature_metadata = ();
     for my $member (@$resp) {
@@ -724,7 +760,7 @@ sub get_feature_metadata {
 sub get_genome_metadata {
     my ($genome_ids, $fields) = @_;
     print STDERR "in get_genome_metadata: genome ids = ", join(", ", @$genome_ids), "\n" if $debug;
-    $fields = ['genome_id','species','host_name','geographic_location','collection_date'] unless $fields;
+    $fields = ['genome_id','species'] unless $fields;
     my $select_string = "select(" . join(",", @$fields) . ")"; 
     my $escaped_ids = join(",", @$genome_ids);
     my $url = "$data_url/genome/?in(genome_id,($escaped_ids))&$select_string";
@@ -795,7 +831,7 @@ sub run_muscle {
     print STDERR "run_muscle($unaligned, $aligned, $tmpdir)\n";
     my ($step_comments, $step_info) = start_step("Align Sequences");
     my $cmd = ["muscle", "-in", $unaligned, "-out", $aligned];
-    my $comment = "Command = " . join(" ", @$cmd);
+    my $comment = "command = " . join(" ", @$cmd);
     if ($tmpdir) {
         my $comment =~ s/$tmpdir//g;
     }

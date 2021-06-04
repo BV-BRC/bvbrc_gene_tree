@@ -7,10 +7,11 @@ our $debug = 0;
 
 sub new {
     my ($class, $input) = @_;
-    print(STDERR "in Sequence_Alignment::new\n");
-    print(STDERR " class = $class\n");
-    print(STDERR " input = $input\n");
-    print(STDERR " args = ", ", ".join(@_), ".\n");
+    if ($debug) {
+        print(STDERR "in Sequence_Alignment::new\n");
+        print(STDERR " class = $class\n");
+        print(STDERR " input = $input\n");
+    }
     my $self = {};
     bless $self, $class;
     $self->{_seqs} = {};
@@ -22,10 +23,11 @@ sub new {
     if ($input) {
         $self->read_file($input)
     }
-    print STDERR "new Sequence_Alignment: ids=", $self->{_ids}, "\n";
+    print( STDERR "new Sequence_Alignment: ids=", $self->{_ids}, "\n") if $debug;
     return $self;
 }
 
+sub set_debug {my $onoff = shift; $debug = $onoff ? 1 : 0}
 sub get_ntaxa { my $self = shift; return scalar(@{$self->{_ids}})}
 sub get_length { my $self = shift; return $self->{_length}}
 sub is_aligned { my $self = shift; return $self->{_is_aligned}}
@@ -48,18 +50,18 @@ sub instantiate_from_hash {
 sub detect_format {
     my $class = shift;
     my $fh = shift;
-    print STDERR "in detect_format, class=$class, fh=$fh\n";
+    print STDERR "in detect_format, class=$class, fh=$fh\n" if $debug;
 
     $_ = readline $fh;
     seek $fh, 0, 0; # reset file to beginning
 
-    print STDERR "first line of file is :\n", $_, "\n";
+    print STDERR "first line of file is :\n", $_, "\n" if $debug;
     my $format = 'unknown';
     $format = 'clustal' if (/^CLUSTAL/ || /^MUSCLE/);
     $format = 'fasta' if (/^>/);
     $format = 'phylip' if (/^(\d+)\s+(\d+)\s*$/);
     $format = 'nexus' if (/\#NEXUS/);
-    print STDERR "input format detected as $format\n";
+    print STDERR "input format detected as $format\n" if $debug;
     return $format
 }
 
@@ -136,10 +138,10 @@ sub read_file {
                 my $temp = $id;
                 my $suffix = 1;
                 while (exists $self->{_seqs}{$temp}) {
-                    print STDERR "sequence id $temp exists\n";
+                    print STDERR "sequence id $temp exists\n" if $debug;
                     $suffix++;
                     $temp = "${id}_$suffix";
-                    print STDERR "incrementing to $temp\n";
+                    print STDERR "incrementing to $temp\n" if $debug;
                 }
                 $id = $temp;
                 push @{$self->{_ids}}, $id;
@@ -181,7 +183,7 @@ sub read_file {
     my $first_id = $self->{_ids}[0];
     $self->{_length} = length($self->{_seqs}{$first_id});
     $self->{_is_aligned} = 1;
-    print STDERR "now review sequences, length = $self->{_length}:\n";
+    print STDERR "now review sequences, length = $self->{_length}:\n" if $debug;
     for my $id (@{$self->{_ids}}) {
         if (length($self->{_seqs}{$id}) != $self->{_length}) {
             $self->{_is_aligned} = 0;
@@ -196,18 +198,20 @@ sub write_fasta {
     my $self = shift;
     my $out = shift;
     my $write_unaligned = shift;
-    print STDERR "in write_fasta($out), ref(out) = ", ref($out), "\n"; 
+    print STDERR "in write_fasta($out), ref(out) = ", ref($out), "\n" if $debug; 
     my $FH = $out;
     unless (ref($out) and ref($out) eq "GLOB") {
-        print STDERR "opening $out for fasta output.\n";
+        print STDERR "opening $out for fasta output.\n" if $debug;
         open(TEMP, ">", $out);
         $FH = *TEMP;
         die "Cannot open file for writing at $out\n" unless $FH;
     }
     foreach my $id (@{$self->{_ids}}) {
         print $FH ">",$id, "\n";
+        die "id from _id is not in _seqs" unless exists $self->{_seqs}->{$id};
         my $seq = $self->{_seqs}->{$id};
         $seq =~ tr/-//d if $write_unaligned;
+        die "seq length is zero for $id" unless $seq;
         print $FH "$seq\n";
     }
     if ($out ne $FH) {
@@ -220,16 +224,18 @@ sub write_phylip {
   # write out in phylip format
     my $self = shift;
     my $out = shift;
-    print STDERR "In write_phylip\n";
-    print STDERR "self = $self\n";
-    print STDERR "out = $out\n";
+    if ($debug) {
+        print STDERR "In write_phylip\n";
+        print STDERR "self = $self\n";
+        print STDERR "out = $out\n";
+    }
     warn "alignment status is $self->{_is_aligned} in write_phylip()" unless $self->{_is_aligned};
     my $FH;
     if (ref($out) and ref($out) eq "GLOB") {
         $out = $FH
     }
     else {
-        print STDERR "opening $out for phylip output.\n";
+        print STDERR "opening $out for phylip output.\n" if $debug;
         open($FH, ">$out");
     }
     print $FH $self->get_ntaxa(), "  ", $self->get_length(), "\n";
@@ -252,10 +258,10 @@ sub write_phylip {
 sub write_fasta_for_raxml {
     my $self = shift;
     my $out = shift;
-    print STDERR "in write_fasta_for_raxml, ref(out) = ", ref($out), "\n"; 
+    print STDERR "in write_fasta_for_raxml, ref(out) = ", ref($out), "\n" if $debug; 
     my $FH = $out;
     unless (ref($out) and ref($out) eq "GLOB") {
-        print STDERR "opening $out for fasta output.\n";
+        print STDERR "opening $out for fasta output.\n" if $debug;
         open(my $TEMP, ">", $out);
         $FH = $TEMP;
     }
@@ -274,7 +280,7 @@ sub write_fasta_for_raxml {
             my $orig = $id;
             my $changed = $id =~ tr/:()[]/_____/; #replace with underscores
             if ($changed) {
-                print STDERR "in write_fasta_for_raxml: original=$orig, changed=$id\n";
+                print STDERR "in write_fasta_for_raxml: original=$orig, changed=$id\n" if $debug;
                 $self->{_raxml_to_original_id}{$id} = $orig;
             }
         }
@@ -372,7 +378,7 @@ sub end_trim {
     # trim gappy ends inward to a minimum occupancy threshold (proportion of non-gap chars)
     my $self = shift;
     my $threshold = shift;
-    print STDERR "In end_trim($threshold)\n";
+    print STDERR "In end_trim($threshold)\n" if $debug;
     ($threshold <= 1.0 and $threshold > 0) or die "threshold must be between 0 and 1";
     my $gap_count = $self->calc_column_gap_count();
     my $max_gaps = (1.0 - $threshold) * $self->get_ntaxa();
@@ -393,7 +399,7 @@ sub end_trim {
     $end-- while ($end and $gap_count->[$end] > $max_gaps);
     my $num_end_columns_trimmed = $self->{_length} - $end - 1;
     my $len = $end - $start + 1;
-    print STDERR "Trim up to $start and after $end\n";
+    print STDERR "Trim up to $start and after $end\n" if $debug;
     #print substr($vis, $start, $len), "\n";
     #print substr($vis2, $start, $len), "\n";
     for my $id (@{$self->{_ids}}) {
@@ -406,7 +412,7 @@ sub end_trim {
 sub calc_row_gap_count
 {
     my $self = shift;
-    print STDERR "In calc_row_gap_count\n";
+    print STDERR "In calc_row_gap_count\n" if $debug;
     my %gap_count;
     for my $id (@{$self->{_ids}}) {
         $gap_count{$id} = $self->{_seqs}->{$id} =~ tr/-/-/;
@@ -424,19 +430,45 @@ sub delete_gappy_seqs {
     my $max_gaps = (1.0 - $threshold)*$self->{_length};
     my $index = 0;
     my @retval = ();
-    for my $id (@{$self->{_ids}}) {
+    while ($index <= $#{$self->{_ids}}) {
+        my $id = $self->{_ids}->[$index];
+        if ($id ne $self->{_ids}->[$index]) {
+            print "item at $index is not $id: ", join(", ", @{$self->{_ids}}[$index - 1, $index, $index + 1]), "\n";
+        }
         if ($gap_count->{$id} > $max_gaps) {
             # remove id from list and seq from hash
+            print STDERR "seq $id has $gap_count->{$id} gaps, deleting index $index.\n" if $debug;
+            my $hashlen_before = scalar keys %{$self->{_seqs}};
+            my $arraylen_before = scalar @{$self->{_ids}};
+            my @abefore= @{$self->{_ids}}[$index-1,$index, $index+1];
             delete($self->{_seqs}->{$id});
-            splice @{$self->{_ids}}, $index, 1;
-            print STDERR "seq $id has $gap_count->{$id} gaps, deleting.\n";
+            my $removed = splice @{$self->{_ids}}, $index, 1;
+            my $hashlen_after = scalar keys %{$self->{_seqs}};
+            my $arraylen_after = scalar @{$self->{_ids}};
+            if ($self->{_ids}->[$index] eq $id) {
+                print "list before = ",join(", ", @abefore), "\n"; 
+                print "list after  = ", join(", ", @{$self->{_ids}}[$index - 1, $index, $index + 1]), "\n";
+                print "Removed = $removed\n";
+                die "found $id on list after deleting it, index=$index hashlen_b=$hashlen_before, hashlen_a=$hashlen_after; arraylen_b=$arraylen_before, arraylen_a=$arraylen_after"; 
+            }
             push @retval, $id;
         }
         else {
             $index++;
         }
     }
+    die "array vs hash mismatch after deteting gappy seqs" if (scalar @{$self->{_ids}} != scalar keys %{$self->{_seqs}});
     return \@retval
 }    
+
+sub get_sequence_lengths {
+    my $self = shift;
+    print STDERR "In get_sequence_lengths, num ids: ", scalar @{$self->{_ids}}, "\n" if $debug;
+    my %seq_len;
+    for my $id (@{$self->{_ids}}) {
+        $seq_len{$id} = length($self->{_seqs}->{$id});
+    }
+    return \%seq_len;
+}
 
 return 1
