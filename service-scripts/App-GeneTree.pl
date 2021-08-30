@@ -32,7 +32,7 @@ our @analysis_step => ();# collect info on sequence of analysis steps
 our @step_stack => (); # for nesting of child steps within parent steps
 
 my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
-#my $data_url = "http://www.alpha.patricbrc.org/api";
+$data_url = "https://patricbrc.org/api" if $debug;
 print STDERR "data_url=\n$data_url\n" if $debug;
 
 my $script = Bio::KBase::AppService::AppScript->new(\&build_tree, \&preflight);
