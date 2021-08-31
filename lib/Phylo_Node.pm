@@ -31,6 +31,7 @@ sub parse_newick {
     my $subclade = "";
     my $node_name = "";
     my $branch_length = "";
+    my $support = "";
     my $state = 'none'; #first subclade, then name, then branch length
     my $open = 0;
     #print STDERR "parse newick:\n$newick\n" if $debug;
@@ -87,8 +88,18 @@ sub parse_newick {
                 $state = 'terminated';
                 $state = 'branch_length' if $char eq ':';
                 print STDERR " name: $node_name,  term = $char\n" if $debug > 2;
-                $self->{_name} = $node_name;
-                $self->{_tree}->register_tip($node_name, $self) unless (exists $self->{_children});
+                if (exists $self->{_children}) {
+                    if ($node_name =~ /[\d\.eE-]+/) {
+                        $self->{_support} = $node_name
+                    }
+                    else {
+                        $self->{_name} = $node_name;
+                    }
+                }
+                else {
+                    $self->{_name} = $node_name;
+                    $self->{_tree}->register_tip($node_name, $self) unless (exists $self->{_children});
+                }
             }
             else {
 				$node_name .= $char;
@@ -166,6 +177,9 @@ sub write_phyloXML {
     my $retval = $indent . "<clade>\n";
     if (exists $self->{_branch_length}) {
         $retval .= $indent . " <branch_length>" . $self->{_branch_length} . "</branch_length>\n";
+    }
+    if (exists $self->{_support_value}) {
+        $retval .= $indent . " <confidence type=\"" . $self->{_tree}->get_support_type() . "\">" . $self->{_support_value} . "</confidence>\n";
     }
 	if (exists $self->{'_children'}) {
 		for my $child (@{$self->{'_children'}}) {

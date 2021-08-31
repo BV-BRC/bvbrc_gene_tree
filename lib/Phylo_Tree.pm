@@ -6,7 +6,7 @@ our $debug = 0; #static variable within this class
 sub set_debug { $debug = shift() ? 1 : 0}
 
 sub new {
-    my ($class, $newick) = @_;
+    my ($class, $newick, $support_type) = @_;
     if ($debug) {
         print(STDERR "in Phylo_Tree constructor\n");
         print(STDERR " class = $class\n");
@@ -19,6 +19,7 @@ sub new {
     $self->{_annot} = {};
     $self->{_ids} = [];
     $self->{_tips} = {};
+    $self->{_support_type} = {$support_type} if $support_type;
     if ($newick) {
         $self->read_newick($newick)
     }
@@ -27,6 +28,7 @@ sub new {
 
 sub get_ntips { my $self = shift; return scalar(@{$self->{_ids}})}
 sub get_length { my $self = shift; return $self->{_length}}
+sub get_suport_type { my $self = shift; return $self->{_support_type}}
 sub register_tip { 
     my ($self, $name, $node) = @_; 
     print STDERR "register tip:\t$name\t$node\n" if $debug > 2;
