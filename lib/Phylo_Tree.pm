@@ -29,7 +29,7 @@ sub get_ntips { my $self = shift; return scalar(@{$self->{_ids}})}
 sub get_length { my $self = shift; return $self->{_length}}
 sub register_tip { 
     my ($self, $name, $node) = @_; 
-    print STDERR "register tip:\t$name\t$node\n" if $debug;
+    print STDERR "register tip:\t$name\t$node\n" if $debug > 2;
     $self->{_tips}->{$name} = $node;
     push @{$self->{_ids}}, $name;
 }

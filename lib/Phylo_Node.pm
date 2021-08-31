@@ -146,15 +146,15 @@ sub add_properties {
         #print STDERR join(', ', keys(%{$metadata})), "\n" if $debug;
         my $node_name = $self->{'_name'};
         if (exists $metadata->{$node_name}) {
-            print STDERR "Found $node_name in metadata, now add key-values.\n" if $debug;
+            print STDERR "Found $node_name in metadata, now add key-values.\n" if $debug > 2;
             $self->{properties} = ();
             for my $key (keys %{$metadata->{$node_name}}) {
                 my $val = $metadata->{$node_name}{$key};
-                print STDERR "  bp  $key" if $debug;
-                print STDERR " $val\n" if $debug;
+                print STDERR "  bp  $key" if $debug > 2;
+                print STDERR " $val\n" if $debug > 2;
                 $key = "$metadata->{namespace}:$key" if (exists $metadata->{namespace});
                 $self->{_properties}{$key} = $val;
-                print STDERR "  np  $key $self->{_properties}{$key}\n" if $debug;
+                print STDERR "  np  $key $self->{_properties}{$key}\n" if $debug > 2;
             }
         }
     }
@@ -162,7 +162,7 @@ sub add_properties {
 
 sub write_phyloXML {
     my ($self, $indent) = @_;
-    print STDERR "node:write_phyloXML, self keys = ", join(", ", keys %{$self}) if $debug;
+    print STDERR "node:write_phyloXML, self keys = ", join(", ", keys %{$self}) if $debug > 2;
     my $retval = $indent . "<clade>\n";
     if (exists $self->{_branch_length}) {
         $retval .= $indent . " <branch_length>" . $self->{_branch_length} . "</branch_length>\n";
@@ -175,7 +175,7 @@ sub write_phyloXML {
     if (exists $self->{'_name'} and $self->{'_name'}) {
         $retval .= $indent . " <name>$self->{'_name'}</name>\n";
         if (exists $self->{_properties}) {
-            print STDERR "Properties found: keys = ", join(",", keys %{$self->{_properties}}), "\n" if $debug;
+            print STDERR "Properties found: keys = ", join(",", keys %{$self->{_properties}}), "\n" if $debug > 2;
             for my $key (sort keys %{$self->{_properties}}) {
                 $retval .= $indent . " <property ref=\"$key\" datatype=\"xsd:string\" applies_to=\"node\">";
                 $retval .= $self->{_properties}{$key} . "</property>\n";

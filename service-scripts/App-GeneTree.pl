@@ -502,7 +502,7 @@ sub gather_metadata {
         push @{$step_comments}, $comment;
         print STDERR "$comment\n"; 
 
-        my $genome_metadata = get_genome_metadata(\@genome_ids);
+        my $genome_metadata = get_genome_metadata(\@genome_ids, $genome_fields);
         for my $feature_id (keys %{$feature_metadata}) {
             my $genome_id = $feature_metadata->{$feature_id}{genome_id};
             if (exists $genome_metadata->{$genome_id}) {
@@ -593,7 +593,7 @@ sub trim_alignment {
 sub run_raxml {
     my ($alignment_file, $alphabet, $model, $output_name, $tmpdir) = @_;
     my ($step_comments, $step_info) = start_step("Phylogenetic Inference with RAxML");
-    print STDERR "In run_raxml, alignment = $alignment_file\n";
+    print STDERR "In run_raxml (with RELL support), alignment = $alignment_file\n";
     my $parallel = $ENV{P3_ALLOCATED_CPU};
     $parallel = 2 if $parallel < 2;
     
@@ -603,7 +603,7 @@ sub run_raxml {
         $model = 'GTRGAMMA'
     }
     else {
-        $model = 'LG' if $model !~ /DAYHOFF|DCMUT|JTT|MTREV|WAG|RTREV|CPREV|VT|BLOSUM62|MTMAM|LG|MTART|MTZOA|PMB|HIVB|HIVW|JTTDCMUT|FLU|STMTREV|DUMMY|DUMMY2|AUTO|LG4M|LG4X|PROT_FILE|GTR_UNLINKED|GTR/;
+        $model = 'LG' if $model !~ /DAYHOFF|DCMUT|JTT|MTREV|WAG|RTREV|CPREV|VT|BLOSUM62|MTMAM|LG|MTART|MTZOA|PMB|HIVB|HIVW|JTTDCMUT|FLU|STMTREV|DUMMY|DUMMY2|AUTO|LG4M|LG4X|PROT_FILE|GTR_UNLINKED|GTR/i;
         $model = "PROTCAT". $model;
     }
 
@@ -613,6 +613,7 @@ sub run_raxml {
     push @cmd, ("-m", $model);
     push @cmd, ("-s", basename($alignment_file));
     push @cmd, ("-n", $output_name);
+    push @cmd, ("-f", "D"); # generate RELL support values
     
     my $comment = "command = ". join(" ", @cmd);
     push @{$step_comments}, $comment;
