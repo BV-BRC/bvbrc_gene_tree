@@ -3,7 +3,8 @@ use Phylo_Node;
 use strict;
 use warnings;
 our $debug = 0; #static variable within this class
-sub set_debug { $debug = shift() ? 1 : 0}
+sub set_debug { $debug = shift;
+    Phylo_Node::set_debug($debug)}
 
 sub new {
     my ($class, $newick, $support_type) = @_;
@@ -28,7 +29,7 @@ sub new {
 
 sub get_ntips { my $self = shift; return scalar(@{$self->{_ids}})}
 sub get_length { my $self = shift; return $self->{_length}}
-sub get_suport_type { my $self = shift; return $self->{_support_type}}
+sub get_support_type { my $self = shift; return defined $self->{_support_type} ? $self->{_support_type} : "support" }
 sub register_tip { 
     my ($self, $name, $node) = @_; 
     print STDERR "register tip:\t$name\t$node\n" if $debug > 2;
@@ -45,6 +46,19 @@ sub list_tips {
         $retval .= "$name\t$node->{_level}\n";
     }
     $retval;
+}
+
+sub add_tip_metadata {
+    my ($self, $tip_name, $field_name, $value, $provenance) = @_;
+    print STDERR "in Phylo_Tree.add_tip_metadata($self, $tip_name, $field_name, $value)\n";
+    unless (exists $self->{_tips}->{$tip_name}) {
+        print STDERR "Hey! $tip_name not found in $self->{_tips}\n";
+        #warn "Tried to add metadata to non-existent tip $tip_name";
+        #return;
+    }
+    my $node = $self->{_tips}->{$tip_name};
+    print STDERR "In Phylo_Tree.add_tip_metadata: about to call node->add_single_property($field_name, $value) on $node\n" if $debug > 2;
+    $node->add_single_property($field_name, $value);
 }
 
 sub read_newick {
@@ -74,10 +88,10 @@ sub get_input_newick {
     $self->{_newick}
 }
 
-sub add_properties {
+sub add_bulk_properties {
     my ($self, $metadata, $namespace) = @_;
     $metadata->{namespace} = "BVBRC";
-    $self->{_root}->add_properties($metadata);
+    $self->{_root}->add_bulk_properties_recursive($metadata);
 }
 
 sub write_phyloXML {

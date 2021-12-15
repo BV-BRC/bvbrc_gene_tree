@@ -1,3 +1,4 @@
+#!/usr/bin/env perl
 use Phylo_Tree; # should be in lib directory
 use strict;
 
@@ -23,22 +24,30 @@ if ($metadata_file) {
     $_ = <F>;
     chomp;
     my @header = split("\t");
+    print STDERR "Header = " . join("^^", @header) . "\n";
     while (<F>) {
         chomp;
         my @fields = split("\t");
         my $id = $fields[0];
-        for my $i (1..length($#header)) {
+        for my $i (1 .. $#header) {
             my $key = $header[$i];
             my $val = $fields[$i];
-            print "In newick_to_phyloxml: about to call tree->add_tip_metadata($id, $key, $val)\n";
-            $tree->add_tip_metadata($id, $key, $val);
+            print "In newick_to_phyloxml: i=$i call tree->add_tip_metadata($id, $key, $val)\n";
+            if ($val) {
+                $tree->add_tip_metadata($id, $key, $val);
+            }
+            else {
+                print "skipping because value is empty\n";
+            }
         }
     }
 }
 
 my $phyloxml_data = $tree->write_phyloXML();
 my $phyloxml_file = $tree_file;
-$phyloxml_file =~ s/\..*/.xml/;
+$phyloxml_file =~ s/\.nwk$//;
+$phyloxml_file =~ s/\.tree$//;
+$phyloxml_file .= ".xml";
 open F, ">$phyloxml_file";
 print F $phyloxml_data;
 close F;
