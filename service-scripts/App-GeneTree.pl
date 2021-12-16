@@ -145,7 +145,7 @@ sub retrieve_sequence_data {
             # then it is one of the fasta formats in the workspace
             my $local_file = $sequence_item->{filename};
             $local_file =~ s/.*\///;
-            print STDERR "About to dowload file $sequence_item->{filename} to $tmpdir/$local_file\n";
+            print STDERR "About to copy file $sequence_item->{filename} to $tmpdir/$local_file\n";
             $app->workspace->download_file($sequence_item->{filename}, "$tmpdir/$local_file", 1, $global_token);
             $sequence_item->{local_file} = $local_file;
             open F, "$tmpdir/$local_file";
@@ -162,15 +162,24 @@ sub retrieve_sequence_data {
             if ($sequence_item->{type} eq 'feature_group') {
                 print STDERR "\tretrieving ids for feature_group: $sequence_item->{filename}\n" if $debug;
                 $feature_ids = $api->retrieve_patricids_from_feature_group($sequence_item->{filename});
+                my @non_empty_ids;
+                my $num_empty_ids = 0;
+                for my $id (@$feature_ids) {
+                    if ($id) { 
+                        push @non_empty_ids, $id }
+                    else { 
+                        $num_empty_ids++ }
+                    if ($num_empty_ids) {
+                        $comment = "number of feature group entries that did not have patric ids: $num_empty_ids";
+                        push @{$step_comments}, $comment;
+                        print STDERR "$comment\n";
+                    }
+                }
+                $feature_ids = \@non_empty_ids;
             }
             else {
                 $feature_ids = $sequence_item->{sequences}
             }
-            my @non_empty_ids;
-            for my $id (@$feature_ids) {
-                push @non_empty_ids, $id if $id
-            }
-            $feature_ids = \@non_empty_ids;
             print STDERR "\tfeature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
             if ($params->{alphabet} eq 'DNA') {
                 $sequence_item->{sequences} = $api->retrieve_nucleotide_feature_sequence($feature_ids);
