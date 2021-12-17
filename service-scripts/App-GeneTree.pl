@@ -24,15 +24,17 @@ our $shock_cutoff = 10_000;
 
 our $debug = 0;
 $debug = $ENV{"GeneTreeDebug"} if exists $ENV{"GeneTreeDebug"};
-print STDERR "debug = $debug\n" if $debug;
-Phylo_Tree::set_debug($debug); 
-Phylo_Node::set_debug($debug); 
-print STDERR "args = ", join("\n", @ARGV), "\n" if $debug;
+if ($debug) {
+    print STDERR "debug = $debug\n" if $debug;
+    Phylo_Tree::set_debug($debug); 
+    Phylo_Node::set_debug($debug); 
+    print STDERR "args = ", join("\n", @ARGV), "\n";
+}
 our @analysis_step => ();# collect info on sequence of analysis steps
 our @step_stack => (); # for nesting of child steps within parent steps
 
 my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
-#my $data_url = "http://www.alpha.patricbrc.org/api";
+#$data_url = "https://patricbrc.org/api" if $debug;
 print STDERR "data_url=\n$data_url\n" if $debug;
 
 my $script = Bio::KBase::AppService::AppScript->new(\&build_tree, \&preflight);
@@ -143,7 +145,7 @@ sub retrieve_sequence_data {
             # then it is one of the fasta formats in the workspace
             my $local_file = $sequence_item->{filename};
             $local_file =~ s/.*\///;
-            print STDERR "About to dowload file $sequence_item->{filename} to $tmpdir/$local_file\n";
+            print STDERR "About to copy file $sequence_item->{filename} to $tmpdir/$local_file\n";
             $app->workspace->download_file($sequence_item->{filename}, "$tmpdir/$local_file", 1, $global_token);
             $sequence_item->{local_file} = $local_file;
             open F, "$tmpdir/$local_file";
@@ -160,6 +162,20 @@ sub retrieve_sequence_data {
             if ($sequence_item->{type} eq 'feature_group') {
                 print STDERR "\tretrieving ids for feature_group: $sequence_item->{filename}\n" if $debug;
                 $feature_ids = $api->retrieve_patricids_from_feature_group($sequence_item->{filename});
+                my @non_empty_ids;
+                my $num_empty_ids = 0;
+                for my $id (@$feature_ids) {
+                    if ($id) { 
+                        push @non_empty_ids, $id }
+                    else { 
+                        $num_empty_ids++ }
+                    if ($num_empty_ids) {
+                        $comment = "number of feature group entries that did not have patric ids: $num_empty_ids";
+                        push @{$step_comments}, $comment;
+                        print STDERR "$comment\n";
+                    }
+                }
+                $feature_ids = \@non_empty_ids;
             }
             else {
                 $feature_ids = $sequence_item->{sequences}
@@ -424,7 +440,7 @@ sub build_tree {
             my ($step_comments, $step_info) = start_step("Write PhyloXML");
             my $tree = new Phylo_Tree($tree_file);
             if ($sequence_metadata) {
-                $tree->add_properties($sequence_metadata, "BVBRC");
+                $tree->add_bulk_properties($sequence_metadata, "BVBRC");
             }
             my $phyloxml_data = $tree->write_phyloXML($sequence_metadata);
             my $phyloxml_file = "$tmpdir/$params->{output_file}.xml";
@@ -502,7 +518,7 @@ sub gather_metadata {
         push @{$step_comments}, $comment;
         print STDERR "$comment\n"; 
 
-        my $genome_metadata = get_genome_metadata(\@genome_ids);
+        my $genome_metadata = get_genome_metadata(\@genome_ids, $genome_fields);
         for my $feature_id (keys %{$feature_metadata}) {
             my $genome_id = $feature_metadata->{$feature_id}{genome_id};
             if (exists $genome_metadata->{$genome_id}) {
@@ -593,7 +609,7 @@ sub trim_alignment {
 sub run_raxml {
     my ($alignment_file, $alphabet, $model, $output_name, $tmpdir) = @_;
     my ($step_comments, $step_info) = start_step("Phylogenetic Inference with RAxML");
-    print STDERR "In run_raxml, alignment = $alignment_file\n";
+    print STDERR "In run_raxml (with RELL support), alignment = $alignment_file\n";
     my $parallel = $ENV{P3_ALLOCATED_CPU};
     $parallel = 2 if $parallel < 2;
     
@@ -603,7 +619,7 @@ sub run_raxml {
         $model = 'GTRGAMMA'
     }
     else {
-        $model = 'LG' if $model !~ /DAYHOFF|DCMUT|JTT|MTREV|WAG|RTREV|CPREV|VT|BLOSUM62|MTMAM|LG|MTART|MTZOA|PMB|HIVB|HIVW|JTTDCMUT|FLU|STMTREV|DUMMY|DUMMY2|AUTO|LG4M|LG4X|PROT_FILE|GTR_UNLINKED|GTR/;
+        $model = 'LG' if $model !~ /DAYHOFF|DCMUT|JTT|MTREV|WAG|RTREV|CPREV|VT|BLOSUM62|MTMAM|LG|MTART|MTZOA|PMB|HIVB|HIVW|JTTDCMUT|FLU|STMTREV|DUMMY|DUMMY2|AUTO|LG4M|LG4X|PROT_FILE|GTR_UNLINKED|GTR/i;
         $model = "PROTCAT". $model;
     }
 
@@ -613,6 +629,7 @@ sub run_raxml {
     push @cmd, ("-m", $model);
     push @cmd, ("-s", basename($alignment_file));
     push @cmd, ("-n", $output_name);
+    push @cmd, ("-f", "D"); # generate RELL support values
     
     my $comment = "command = ". join(" ", @cmd);
     push @{$step_comments}, $comment;
@@ -623,16 +640,26 @@ sub run_raxml {
     print STDERR "STDOUT:\n$out\n";
     print STDERR "STDERR:\n$err\n";
     $step_info->{details} = $out;
+
+    # now map RELL bootstrap replicates support numbers onto ML tree
+    @cmd = ("raxmlHPC-PTHREADS-SSE3", "-f", "b", "-m", "GTRCAT"); #to map RELL bootstrap support onto ML tree
+    push @cmd, ("-t", "RAxML_bestTree.".$output_name);
+    push @cmd, ("-z", "RAxML_rellBootstrap.". $output_name);
+    push @cmd, ("-n", $output_name . "_rell");
+    my ($out, $err) = run_cmd(\@cmd);
+    print STDERR "STDOUT:\n$out\n";
+    print STDERR "STDERR:\n$err\n";
+    $step_info->{details} .= $out;
     
     my @outputs;
-    my $treeFile = $output_name . "_RAxML_tree.nwk";
-    move("RAxML_bestTree.".$output_name, $treeFile);
-    my $statsFile = $output_name . "_RAxML_stats.txt";
-    move("RAxML_info.".$output_name, $statsFile);
-    #my $details = read_file($statsFile);
+    my $treeFile = $output_name . "_RAxML_tree_rell.nwk";
+    move("RAxML_bipartitions.".$output_name. "_rell", $treeFile);
+    my $logFile = $output_name . "_RAxML_log.txt";
+    move("RAxML_info.".$output_name, $logFile);
+    #my $details = read_file($logFile);
     #$step_info->{details} .= $details;
     push @outputs, ["$tmpdir/$treeFile", 'nwk'];
-    push @outputs, ["$tmpdir/$statsFile", 'txt'];
+    push @outputs, ["$tmpdir/$logFile", 'txt'];
 
     chdir($cwd);
     run("echo $tmpdir && ls -ltr $tmpdir");
@@ -652,7 +679,6 @@ sub run_phyml {
         $model = 'GTR' if $model !~ /HKY85|JC69|K80|F81|F84|TN93|GTR/;
     }
     else {
-        $datatype = 'aa';
         $model = 'LG' if $model !~ /WAG|JTT|MtREV|Dayhoff|DCMut|RtREV|CpREV|VT|AB|Blosum62|MtMam|MtArt|HIVw|HIVb/;
     }
 
@@ -677,12 +703,12 @@ sub run_phyml {
     my @outputs;
     my $treeFile = $output_name."_phyml_tree.nwk";
     move($alignment_file."_phyml_tree.txt", $treeFile);
-    my $statsFile = $output_name."_phyml_stats.txt";
-    move($alignment_file."_phyml_stats.txt", $statsFile);
-    my $details = read_file($statsFile);
+    my $logFile = $output_name."_phyml_log.txt";
+    move($alignment_file."_phyml_log.txt", $logFile);
+    my $details = read_file($logFile);
     $step_info->{details} .= $details;
     push @outputs, ["$tmpdir/$treeFile", 'nwk'];
-    push @outputs, ["$tmpdir/$statsFile", 'txt'];
+    push @outputs, ["$tmpdir/$logFile", 'txt'];
 
     chdir($cwd);
     run("echo $tmpdir && ls -ltr $tmpdir");
@@ -708,6 +734,7 @@ sub run_fasttree {
         push @cmd, "-$model";
     }
 
+    $alignment_file =~ s/.*\///; # strip off path as we will chdir to tmpdir
     push @cmd, $alignment_file;
     my $comment = join(" ", @cmd);
     #$comment =~ s/$tmpdir//g;
@@ -722,10 +749,10 @@ sub run_fasttree {
     $step_info->{details} = $err;
     
     my @outputs;
-    my $statsFile = $output_name."_fasttree_stats.txt";
-    write_file($statsFile, $out);
+    my $logFile = $output_name."_fasttree_log.txt";
+    write_file($logFile, $err);
     push @outputs, ["$tmpdir/$treeFile", 'nwk'];
-    push @outputs, ["$tmpdir/$statsFile", 'txt'];
+    push @outputs, ["$tmpdir/$logFile", 'txt'];
 
     chdir($cwd);
     run("echo $tmpdir && ls -ltr $tmpdir");

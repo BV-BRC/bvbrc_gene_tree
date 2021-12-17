@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.20/phyloxml.xsd" xmlns="http://www.phyloxml.org">
+ <phylogeny rooted="true" rerootable="true">
+ <clade>
+  <clade>
+   <branch_length>0.00000100000050002909</branch_length>
+   <name>fig|252393.12.peg.2024</name>
+   <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+   <property ref="genome_id" datatype="xsd:string" applies_to="node">252393.12</property>
+   <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+   <property ref="host_name" datatype="xsd:string" applies_to="node">Bactrocera oleae</property>
+   <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|252393.12.peg.2024</property>
+   <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+   <property ref="species" datatype="xsd:string" applies_to="node">Candidatus Erwinia dacicola</property>
+  </clade>
+  <clade>
+   <branch_length>0.21577236369741922828</branch_length>
+   <confidence type="support">100</confidence>
+   <clade>
+    <branch_length>0.00207786832188459154</branch_length>
+    <confidence type="support">100</confidence>
+    <clade>
+     <branch_length>0.00000100000050002909</branch_length>
+     <name>fig|1255309.3.peg.450</name>
+     <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+     <property ref="genome_id" datatype="xsd:string" applies_to="node">1255309.3</property>
+     <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+     <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+     <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1255309.3.peg.450</property>
+     <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+     <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+    </clade>
+    <clade>
+     <branch_length>0.00000100000050002909</branch_length>
+     <name>fig|1255310.3.peg.499</name>
+     <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+     <property ref="genome_id" datatype="xsd:string" applies_to="node">1255310.3</property>
+     <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+     <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+     <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1255310.3.peg.499</property>
+     <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+     <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+    </clade>
+   </clade>
+   <clade>
+    <branch_length>0.00588721387697551529</branch_length>
+    <confidence type="support">81</confidence>
+    <clade>
+     <branch_length>0.00000100000050002909</branch_length>
+     <name>fig|716540.3.peg.2527</name>
+     <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+     <property ref="genome_id" datatype="xsd:string" applies_to="node">716540.3</property>
+     <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+     <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+     <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|716540.3.peg.2527</property>
+     <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+     <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+    </clade>
+    <clade>
+     <branch_length>0.00000100000050002909</branch_length>
+     <confidence type="support">63</confidence>
+     <clade>
+      <branch_length>0.00000100000050002909</branch_length>
+      <confidence type="support">0</confidence>
+      <clade>
+       <branch_length>0.00000100000050002909</branch_length>
+       <confidence type="support">0</confidence>
+       <clade>
+        <branch_length>0.00000100000050002909</branch_length>
+        <confidence type="support">0</confidence>
+        <clade>
+         <branch_length>0.00000100000050002909</branch_length>
+         <confidence type="support">0</confidence>
+         <clade>
+          <branch_length>0.00000100000050002909</branch_length>
+          <name>fig|1255308.3.peg.2640</name>
+          <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+          <property ref="genome_id" datatype="xsd:string" applies_to="node">1255308.3</property>
+          <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+          <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+          <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1255308.3.peg.2640</property>
+          <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+          <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+         </clade>
+         <clade>
+          <branch_length>0.00000100000050002909</branch_length>
+          <confidence type="support">0</confidence>
+          <clade>
+           <branch_length>0.00000100000050002909</branch_length>
+           <name>fig|1255305.3.peg.2644</name>
+           <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="genome_id" datatype="xsd:string" applies_to="node">1255305.3</property>
+           <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1255305.3.peg.2644</property>
+           <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+           <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+          </clade>
+          <clade>
+           <branch_length>0.00000100000050002909</branch_length>
+           <confidence type="support">0</confidence>
+           <clade>
+            <branch_length>0.00000100000050002909</branch_length>
+            <name>fig|1255304.3.peg.2668</name>
+            <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+            <property ref="genome_id" datatype="xsd:string" applies_to="node">1255304.3</property>
+            <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+            <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+            <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1255304.3.peg.2668</property>
+            <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+            <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+           </clade>
+           <clade>
+            <branch_length>0.00000100000050002909</branch_length>
+            <confidence type="support">0</confidence>
+            <clade>
+             <branch_length>0.00000100000050002909</branch_length>
+             <name>fig|1255306.3.peg.2651</name>
+             <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+             <property ref="genome_id" datatype="xsd:string" applies_to="node">1255306.3</property>
+             <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+             <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+             <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1255306.3.peg.2651</property>
+             <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+             <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+            </clade>
+            <clade>
+             <branch_length>0.00000100000050002909</branch_length>
+             <name>fig|1027397.3.peg.2656</name>
+             <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+             <property ref="genome_id" datatype="xsd:string" applies_to="node">1027397.3</property>
+             <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+             <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+             <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1027397.3.peg.2656</property>
+             <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+             <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+            </clade>
+           </clade>
+          </clade>
+         </clade>
+        </clade>
+        <clade>
+         <branch_length>0.00000100000050002909</branch_length>
+         <confidence type="support">0</confidence>
+         <clade>
+          <branch_length>0.00000100000050002909</branch_length>
+          <confidence type="support">65</confidence>
+          <clade>
+           <branch_length>0.00000100000050002909</branch_length>
+           <name>fig|665029.3.peg.2525</name>
+           <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="genome_id" datatype="xsd:string" applies_to="node">665029.3</property>
+           <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|665029.3.peg.2525</property>
+           <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+           <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+          </clade>
+          <clade>
+           <branch_length>0.00000100000050002909</branch_length>
+           <name>fig|1407064.3.peg.2737</name>
+           <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="genome_id" datatype="xsd:string" applies_to="node">1407064.3</property>
+           <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1407064.3.peg.2737</property>
+           <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+           <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+          </clade>
+         </clade>
+         <clade>
+          <branch_length>0.00000100000050002909</branch_length>
+          <confidence type="support">0</confidence>
+          <clade>
+           <branch_length>0.00000100000050002909</branch_length>
+           <name>fig|1407062.3.peg.2729</name>
+           <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="genome_id" datatype="xsd:string" applies_to="node">1407062.3</property>
+           <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1407062.3.peg.2729</property>
+           <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+           <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+          </clade>
+          <clade>
+           <branch_length>0.00000100000050002909</branch_length>
+           <name>fig|1255307.3.peg.2665</name>
+           <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="genome_id" datatype="xsd:string" applies_to="node">1255307.3</property>
+           <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+           <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1255307.3.peg.2665</property>
+           <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+           <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+          </clade>
+         </clade>
+        </clade>
+       </clade>
+       <clade>
+        <branch_length>0.00000100000050002909</branch_length>
+        <name>fig|1407063.3.peg.2724</name>
+        <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+        <property ref="genome_id" datatype="xsd:string" applies_to="node">1407063.3</property>
+        <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+        <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+        <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1407063.3.peg.2724</property>
+        <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+        <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+       </clade>
+      </clade>
+      <clade>
+       <branch_length>0.00000100000050002909</branch_length>
+       <name>fig|1255303.3.peg.2659</name>
+       <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+       <property ref="genome_id" datatype="xsd:string" applies_to="node">1255303.3</property>
+       <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+       <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+       <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1255303.3.peg.2659</property>
+       <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+       <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+      </clade>
+     </clade>
+     <clade>
+      <branch_length>0.00000100000050002909</branch_length>
+      <name>fig|1219359.3.peg.2382</name>
+      <property ref="collection_date" datatype="xsd:string" applies_to="node">na</property>
+      <property ref="genome_id" datatype="xsd:string" applies_to="node">1219359.3</property>
+      <property ref="geographic_location" datatype="xsd:string" applies_to="node">na</property>
+      <property ref="host_name" datatype="xsd:string" applies_to="node">na</property>
+      <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|1219359.3.peg.2382</property>
+      <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+      <property ref="species" datatype="xsd:string" applies_to="node">Erwinia amylovora</property>
+     </clade>
+    </clade>
+   </clade>
+  </clade>
+  <clade>
+   <branch_length>0.00000100000050002909</branch_length>
+   <name>fig|252393.16.peg.1012</name>
+   <property ref="collection_date" datatype="xsd:string" applies_to="node">2009</property>
+   <property ref="genome_id" datatype="xsd:string" applies_to="node">252393.16</property>
+   <property ref="geographic_location" datatype="xsd:string" applies_to="node">USA: California</property>
+   <property ref="host_name" datatype="xsd:string" applies_to="node">Bactrocera oleae</property>
+   <property ref="patric_id" datatype="xsd:string" applies_to="node">fig|252393.16.peg.1012</property>
+   <property ref="product" datatype="xsd:string" applies_to="node">Holo-[acyl-carrier-protein] synthase (EC 2.7.8.7)</property>
+   <property ref="species" datatype="xsd:string" applies_to="node">Candidatus Erwinia dacicola</property>
+  </clade>
+ </clade>
+ </phylogeny>
+</phyloxml>

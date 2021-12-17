@@ -3,7 +3,7 @@ use strict;
 use warnings;
 our $debug = 0;
 
-sub set_debug { $debug = shift() ? 1 : 0}
+sub set_debug { $debug = shift}
 
 sub new {
     my ($class, $newick, $owner, $level) = @_;
@@ -87,8 +87,18 @@ sub parse_newick {
                 $state = 'terminated';
                 $state = 'branch_length' if $char eq ':';
                 print STDERR " name: $node_name,  term = $char\n" if $debug > 2;
-                $self->{_name} = $node_name;
-                $self->{_tree}->register_tip($node_name, $self) unless (exists $self->{_children});
+                if (exists $self->{_children}) {
+                    if ($node_name =~ /^[\d\.eE-]+$/) { # if it is a number
+                        $self->{_support} = $node_name
+                    }
+                    else {
+                        $self->{_name} = $node_name;
+                    }
+                }
+                else {
+                    $self->{_name} = $node_name;
+                    $self->{_tree}->register_tip($node_name, $self) unless (exists $self->{_children});
+                }
             }
             else {
 				$node_name .= $char;
@@ -133,12 +143,18 @@ sub write_newick {
     return $retval
 }
 
-sub add_properties {
+sub add_single_property {
+    my ($self, $key, $val) = @_;
+    $self->{_properties}{$key} = $val;
+    print STDERR "Phylo_Node:add_single_property just added key=$key, val=$self->{_properties}{$key}\n" if $debug > 2;
+}
+
+sub add_bulk_properties_recursive {
     my ($self, $metadata) = @_;
 
 	if (exists $self->{'_children'}) {
 		for my $child (@{$self->{'_children'}}) {
-			$child->add_properties($metadata);
+			$child->add_bulk_properties_recursive($metadata);
 		}
 	}
     if (exists $self->{'_name'} and $self->{'_name'}) {
@@ -146,15 +162,15 @@ sub add_properties {
         #print STDERR join(', ', keys(%{$metadata})), "\n" if $debug;
         my $node_name = $self->{'_name'};
         if (exists $metadata->{$node_name}) {
-            print STDERR "Found $node_name in metadata, now add key-values.\n" if $debug;
-            $self->{properties} = ();
+            print STDERR "Found $node_name in metadata, now add key-values.\n" if $debug > 2;
+            #$self->{properties} = ();
             for my $key (keys %{$metadata->{$node_name}}) {
                 my $val = $metadata->{$node_name}{$key};
-                print STDERR "  bp  $key" if $debug;
-                print STDERR " $val\n" if $debug;
+                print STDERR "  bp  $key" if $debug > 2;
+                print STDERR " $val\n" if $debug > 2;
                 $key = "$metadata->{namespace}:$key" if (exists $metadata->{namespace});
                 $self->{_properties}{$key} = $val;
-                print STDERR "  np  $key $self->{_properties}{$key}\n" if $debug;
+                print STDERR "  np  $key $self->{_properties}{$key}\n" if $debug > 2;
             }
         }
     }
@@ -162,26 +178,29 @@ sub add_properties {
 
 sub write_phyloXML {
     my ($self, $indent) = @_;
-    print STDERR "node:write_phyloXML, self keys = ", join(", ", keys %{$self}) if $debug;
+    print STDERR "node:write_phyloXML, self keys = ", join(", ", keys %{$self}) if $debug > 2;
     my $retval = $indent . "<clade>\n";
+    if (exists $self->{'_name'} and $self->{'_name'}) {
+        $retval .= $indent . " <name>$self->{'_name'}</name>\n";
+    }
     if (exists $self->{_branch_length}) {
         $retval .= $indent . " <branch_length>" . $self->{_branch_length} . "</branch_length>\n";
+    }
+    if (exists $self->{_support}) {
+        $retval .= $indent . " <confidence type=\"" . $self->{_tree}->get_support_type() . "\">" . $self->{_support} . "</confidence>\n";
+    }
+    if (exists $self->{_properties}) {
+        print STDERR "Properties found: keys = ", join(",", keys %{$self->{_properties}}), "\n" if $debug > 2;
+        for my $key (sort keys %{$self->{_properties}}) {
+            $retval .= $indent . " <property ref=\"$key\" datatype=\"xsd:string\" applies_to=\"node\">";
+            $retval .= $self->{_properties}{$key} . "</property>\n";
+        }
     }
 	if (exists $self->{'_children'}) {
 		for my $child (@{$self->{'_children'}}) {
 			$retval .= $child->write_phyloXML($indent . " ");
 		}
 	}
-    if (exists $self->{'_name'} and $self->{'_name'}) {
-        $retval .= $indent . " <name>$self->{'_name'}</name>\n";
-        if (exists $self->{_properties}) {
-            print STDERR "Properties found: keys = ", join(",", keys %{$self->{_properties}}), "\n" if $debug;
-            for my $key (sort keys %{$self->{_properties}}) {
-                $retval .= $indent . " <property ref=\"$key\" datatype=\"xsd:string\" applies_to=\"node\">";
-                $retval .= $self->{_properties}{$key} . "</property>\n";
-            }
-        }
-    }
     $retval .= $indent . "</clade>\n";
     return $retval;
 }
