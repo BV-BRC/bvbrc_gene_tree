@@ -18,31 +18,31 @@ sub new {
     bless $self, $class;
     $self->{_root} = {};
     $self->{_annot} = {};
-    $self->{_ids} = [];
     $self->{_tips} = {};
     $self->{_support_type} = {$support_type} if $support_type;
+    $self->{'_property_datatype'} = {};
+    $self->{'_property_applies_to'} = {};
     if ($newick) {
         $self->read_newick($newick)
     }
     return $self;
 }
 
-sub get_ntips { my $self = shift; return scalar(@{$self->{_ids}})}
+sub get_ntips { my $self = shift; return scalar(keys %{$self->{_tips}})}
 sub get_length { my $self = shift; return $self->{_length}}
 sub get_support_type { my $self = shift; return defined $self->{_support_type} ? $self->{_support_type} : "support" }
 sub register_tip { 
     my ($self, $name, $node) = @_; 
     print STDERR "register tip:\t$name\t$node\n" if $debug > 2;
-    $self->{_tips}->{$name} = $node;
-    push @{$self->{_ids}}, $name;
+    $self->{_tips}{$name} = $node;
 }
 
 sub list_tips {
     my $self = shift;
-    my $retval = "Number of tips = " . scalar @{$self->{_ids}};
+    my $retval = "Number of tips = " . scalar keys %{$self->{_tips}};
     $retval .= "\n";
-    for my $name (@{$self->{_ids}}) {
-        my $node = $self->{_tips}->{$name};
+    for my $name (keys %{$self->{_tips}}) {
+        my $node = $self->{_tips}{$name};
         $retval .= "$name\t$node->{_level}\n";
     }
     $retval;
@@ -51,12 +51,12 @@ sub list_tips {
 sub add_tip_metadata {
     my ($self, $tip_name, $field_name, $value, $provenance) = @_;
     print STDERR "in Phylo_Tree.add_tip_metadata($self, $tip_name, $field_name, $value)\n";
-    unless (exists $self->{_tips}->{$tip_name}) {
+    unless (exists $self->{_tips}{$tip_name}) {
         print STDERR "Hey! $tip_name not found in $self->{_tips}\n";
         #warn "Tried to add metadata to non-existent tip $tip_name";
         #return;
     }
-    my $node = $self->{_tips}->{$tip_name};
+    my $node = $self->{_tips}{$tip_name};
     print STDERR "In Phylo_Tree.add_tip_metadata: about to call node->add_single_property($field_name, $value) on $node\n" if $debug > 2;
     $node->add_single_property($field_name, $value);
 }
@@ -86,6 +86,27 @@ sub write_newick {
 sub get_input_newick {
     my $self = shift;
     $self->{_newick}
+}
+
+sub add_tip_properties {
+    my ($self, $prop_hashref) = @_;
+    print STDERR "in:add_tip_properties($self, $prop_hashref)\n";
+    print STDERR "prop_hashref = %{$prop_hashref}\n";
+    my ($applies_to, $datatype, $ref) = ('node', 'xsd:string', undef);
+    $applies_to = $prop_hashref->{'QName:applies_to'} if $prop_hashref->{'QName:applies_to'};
+    $datatype = $prop_hashref->{'QName:datatype'} if $prop_hashref->{'QName:datatype'};
+    $ref = $prop_hashref->{'column_head'} if $prop_hashref->{'column_head'};
+    $ref = $prop_hashref->{'QName:ref'} if $prop_hashref->{'QName:ref'};
+    $self->{'_property_datatype'}{$ref} = $datatype;
+    $self->{'_property_applies_to'}{$ref} = $applies_to;
+    for my $tip_name (keys %{$self->{_tips}}) {
+        print STDERR "try node $tip_name\n";
+        if (exists $prop_hashref->{$tip_name}) {
+            my $value = $prop_hashref->{$tip_name};
+            my $node = $self->{_tips}{$tip_name};
+            $node->add_property($ref, $value);
+        }
+    }
 }
 
 sub add_bulk_properties {

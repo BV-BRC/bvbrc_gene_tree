@@ -143,6 +143,12 @@ sub write_newick {
     return $retval
 }
 
+sub add_property {
+    my ($self, $ref, $val) = @_;
+    $self->{_properties}{$ref} = $val;
+    print STDERR "Phylo_Node:add_single_property just added key=$ref, val=$self->{_properties}{$ref}\n" if $debug > 2;
+}
+
 sub add_single_property {
     my ($self, $key, $val) = @_;
     $self->{_properties}{$key} = $val;
@@ -190,10 +196,10 @@ sub write_phyloXML {
         $retval .= $indent . " <confidence type=\"" . $self->{_tree}->get_support_type() . "\">" . $self->{_support} . "</confidence>\n";
     }
     if (exists $self->{_properties}) {
-        print STDERR "Properties found: keys = ", join(",", keys %{$self->{_properties}}), "\n" if $debug > 2;
-        for my $key (sort keys %{$self->{_properties}}) {
-            $retval .= $indent . " <property ref=\"$key\" datatype=\"xsd:string\" applies_to=\"node\">";
-            $retval .= $self->{_properties}{$key} . "</property>\n";
+        print STDERR "Properties found: refs = ", join(",", keys %{$self->{_properties}}), "\n" if $debug > 2;
+        for my $ref (sort keys %{$self->{_properties}}) {
+            $retval .= $indent . " <property ref=\"$ref\" datatype=\"$self->{_tree}{_property_datatype}{$ref}\" applies_to=\"$self->{_tree}{_property_applies_to}{$ref}\">";
+            $retval .= $self->{_properties}{$ref} . "</property>\n";
         }
     }
 	if (exists $self->{'_children'}) {
