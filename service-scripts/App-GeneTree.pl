@@ -153,33 +153,52 @@ sub retrieve_sequence_data {
                 $num_seqs++ if /^>/ }
             close F
         }
-        elsif ($sequence_item->{type} eq "feature_group" or $sequence_item->{type} eq "feature_ids") {
+        elsif ($sequence_item->{type} eq "feature_group") {
             # need to get feature sequences from database 
             $any_in_memory = 1;
-            $comment = "retrieving sequences for feature group $sequence_item->{filename}";
-            #push @{$step_comments}, $comment;
-            my $feature_ids;
-            if ($sequence_item->{type} eq 'feature_group') {
-                print STDERR "\tretrieving ids for feature_group: $sequence_item->{filename}\n" if $debug;
-                $feature_ids = $api->retrieve_patricids_from_feature_group($sequence_item->{filename});
-                my @non_empty_ids;
-                my $num_empty_ids = 0;
-                for my $id (@$feature_ids) {
-                    if ($id) { 
-                        push @non_empty_ids, $id }
-                    else { 
-                        $num_empty_ids++ }
-                    if ($num_empty_ids) {
-                        $comment = "number of feature group entries that did not have patric ids: $num_empty_ids";
-                        push @{$step_comments}, $comment;
-                        print STDERR "$comment\n";
+            my $feature_group = $sequence_item->{filename};
+            $comment = "retrieving sequences for feature group $feature_group";
+            print STDERR $comment, "\n";
+            push @{$step_comments}, $comment;
+            my $seq_list;
+            if ($params->{alphabet} eq 'DNA') {
+                $seq_list = $api->retrieve_nucleotide_sequences_from_feature_group($feature_group, ['patric_id', 'product', 'genome_id']);
+            } else {
+                $seq_list = $api->retrieve_protein_sequences_from_feature_group($feature_group, ['patric_id', 'product', 'genome_id']);
+            }
+            $comment = "number of elements = " . scalar(@$seq_list);
+            push @{$step_comments}, $comment;
+            print STDERR $comment, "\n";
+            $sequence_item->{sequences} = {};
+            $params->{metadata} = {} unless $params->{metadata};
+            print STDERR "params->metadata = $params->{metadata}\n";
+            for my $seq_record (@$seq_list) {
+                my $seq_id;
+                if (exists $seq_record->{'patric_id'}) { 
+                    $seq_id = $seq_record->{'patric_id'};
+                }
+                else {
+                    $seq_id = $seq_record->{'feature_id'}
+                }
+                $sequence_item->{sequences}{$seq_id} = $seq_record->{'sequence'};
+                $params->{metadata}{$seq_id} = {};
+                for my $key (keys %{$seq_record}) {
+                    print STDERR "key=$key ";
+                    unless ($key eq 'sequence') {
+                        #print STDERR "params->metadata->$seq_id = $params->{metadata}{$seq_id}\n";
+                        $params->{metadata}{$seq_id}{$key} = $seq_record->{$key};
                     }
                 }
-                $feature_ids = \@non_empty_ids;
+                print STDERR "\n";
             }
-            else {
-                $feature_ids = $sequence_item->{sequences}
-            }
+            $num_seqs = scalar keys %{$sequence_item->{sequences}};
+        }
+        elsif ($sequence_item->{type} eq "feature_ids") {
+            # need to get feature sequences from database 
+            $any_in_memory = 1;
+            $comment = "retrieving sequences for feature ids";
+            push @{$step_comments}, $comment;
+            my $feature_ids = $sequence_item->{sequences};
             print STDERR "\tfeature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
             if ($params->{alphabet} eq 'DNA') {
                 $sequence_item->{sequences} = $api->retrieve_nucleotide_feature_sequence($feature_ids);
@@ -354,8 +373,8 @@ sub build_tree {
         $seq_ids = $alignment->get_ids();
         print STDERR "num seqs: ", scalar @{$seq_ids}, "\n";
     }
-    my $alpha = lc($params->{alphabet});
-    push @outputs, [$aligned_file, "aligned_${alpha}_fasta"];
+    my $alphabet = $params->{alphabet};
+    push @outputs, [$aligned_file, "aligned_${alphabet}_fasta"];
     run("echo $tmpdir && ls -ltr $tmpdir");
     
     my $num_seqs = $alignment->get_ntaxa();
@@ -373,7 +392,6 @@ sub build_tree {
             $model = "GTR"
         }
         my $output_name = $params->{output_file};
-        my $alphabet = $params->{alphabet};
         my $recipe = "raxml"; #default
         if (defined $params->{recipe} and $params->{recipe}) {
             $recipe = lc($params->{recipe})
@@ -430,19 +448,19 @@ sub build_tree {
             my $seq_ids_ar = $alignment->get_ids();
             my $feature_fields = ['patric_id', 'genome_id', 'product'];
             my $genome_fields = ['genome_id','species','host_name','geographic_location','collection_date'];
-            my ($sequence_metadata, $metadata_tsv) = gather_metadata($seq_ids_ar, $feature_fields, $genome_fields); 
-            print "gather_metadata: hash size = " . scalar(keys %{$sequence_metadata}). ", tsv size = " . length($metadata_tsv) . "\n" if $debug;
-            if ($sequence_metadata and $metadata_tsv) {
+            my $metadata_tsv = gather_metadata($params->{metadata}, $seq_ids_ar, $feature_fields, $genome_fields); 
+            print "gather_metadata: hash size = " . scalar(keys %{$params->{metadata}}). ", tsv size = " . length($metadata_tsv) . "\n" if $debug;
+            if ($params->{metadata} and $metadata_tsv) {
                 my $metadata_file = "$tmpdir/$params->{output_file}_metadata.txt";
                 write_file($metadata_file, $metadata_tsv);
                 push @outputs, [$metadata_file, "tsv"];
             }
             my ($step_comments, $step_info) = start_step("Write PhyloXML");
             my $tree = new Phylo_Tree($tree_file);
-            if ($sequence_metadata) {
-                $tree->add_bulk_properties($sequence_metadata, "BVBRC");
+            if ($params->{metadata}) {
+                $tree->add_bulk_properties($params->{metadata}, "BVBRC");
             }
-            my $phyloxml_data = $tree->write_phyloXML($sequence_metadata);
+            my $phyloxml_data = $tree->write_phyloXML($params->{metadata});
             my $phyloxml_file = "$tmpdir/$params->{output_file}.xml";
             write_file($phyloxml_file, $phyloxml_data);
             push @outputs, [$phyloxml_file, "phyloxml"];
@@ -489,16 +507,20 @@ sub build_tree {
 }
 
 sub gather_metadata {
-    my ($seq_ids_ar, $feature_fields, $genome_fields) = @_; 
+    my ($feature_metadata, $seq_ids_ar, $feature_fields, $genome_fields) = @_; 
     my ($step_comments, $step_info) = start_step("Gather Metadata");
     my $metadata_tsv = undef;
+    my $comment = "feature ids= $seq_ids_ar\n";
+    print STDERR $comment;
     my $comment = "feature ids: ". join(", ", @{$seq_ids_ar});
     push @{$step_comments}, $comment;
     print STDERR "$comment\n"; 
     $comment = "feature metadata fields: ". join(", ", @{$feature_fields});
     push @{$step_comments}, $comment;
     print STDERR "$comment\n"; 
-    my $feature_metadata = get_feature_metadata($seq_ids_ar, $feature_fields);
+    my $comment = "in gather_metadata: feature ids= $seq_ids_ar\n";
+    print STDERR $comment;
+    get_feature_metadata($feature_metadata, $seq_ids_ar, $feature_fields);
     $comment = "number of features with data: " . scalar keys %{$feature_metadata};
     push @{$step_comments}, $comment;
     print STDERR "$comment\n"; 
@@ -524,8 +546,10 @@ sub gather_metadata {
             if (exists $genome_metadata->{$genome_id}) {
                 #merge them
                 for my $key (keys %{$genome_metadata->{$genome_id}}) {
-                    $feature_metadata->{$feature_id}{$key} = $genome_metadata->{$genome_id}{$key};
-                    print SDTDERR "mg $genome_id $key $feature_metadata->{$feature_id}->{$key}\n" if $debug;
+                    if ($genome_metadata->{$genome_id}{$key}) {
+                        $feature_metadata->{$feature_id}{$key} = $genome_metadata->{$genome_id}{$key};
+                        print STDERR "mg $genome_id $key $feature_metadata->{$feature_id}->{$key}\n" if $debug;
+                    }
                 }
                 #$feature_metadata->{$feature_id} = ($feature_metadata->{$feature_id}, $genome_metadata->{$genome_id}); 
             }
@@ -547,7 +571,7 @@ sub gather_metadata {
         $step_info->{details} = $metadata_tsv;
     }
     end_step("Gather Metadata");
-    return ($feature_metadata, $metadata_tsv);
+    return $metadata_tsv;
 }
 
 sub trim_alignment {
@@ -762,26 +786,24 @@ sub run_fasttree {
 }
 
 sub get_feature_metadata {
-    # return hashref from patric feature id to hash of field values
-    my ($ids, $fields) = shift;
-    print STDERR "in get_feature_metadata: ids: ", join(", ", @{$ids}), "\n";
+    # add/supplement any data in feature_metadata hashref from patric feature id to hash of field values
+    my ($feature_metadata, $ids, $fields) = @_;
     $fields = ['patric_id','genome_id','product'] unless $fields;
     my $select_string = "select(" . join(",", @$fields) . ")"; 
     my $escaped_ids = join(",", map { uri_escape $_ } @{$ids});
     my $url = "$data_url/genome_feature/?in(patric_id,($escaped_ids))&$select_string";
     print STDERR "query=$url\n";
     my $resp = curl_json($url);
-    #print STDERR "response=$resp\n";
+    print STDERR "response=$resp\n";
     if ( $resp =~ /Error/) {
         warn "Problem! query did not return properly: $url\n";
         return undef;
     }
-    my %feature_metadata = ();
+    #my %feature_metadata = ();
     for my $member (@$resp) {
         my $feature_id = $member->{patric_id};
-        $feature_metadata{$feature_id} = $member;
+        $feature_metadata->{$feature_id} = $member;
     }
-    return \%feature_metadata;
 }
 
 sub get_genome_metadata {

@@ -20,26 +20,33 @@ my $tree = new Phylo_Tree($tree_file);
 print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n";
 
 if ($metadata_file) {
+    print STDERR "read metadata from $metadata_file\n";
+    my %meta_column;
     open F, $metadata_file;
     $_ = <F>;
     chomp;
     my @header = split("\t");
+    shift @header; #remove first element
+    for my $column_head (@header) {
+        $meta_column{$column_head}{'column_head'} = $column_head;
+    }
     print STDERR "Header = " . join("^^", @header) . "\n";
     while (<F>) {
+        s/^#//; # remove leading pound sign, if any
         chomp;
         my @fields = split("\t");
-        my $id = $fields[0];
-        for my $i (1 .. $#header) {
-            my $key = $header[$i];
+        my $id = shift @fields; # remove first element
+        print STDERR "got metadatafields for $id\n";
+        for my $i (0 .. $#header) {
+            my $column_head = $header[$i];
             my $val = $fields[$i];
-            print "In newick_to_phyloxml: i=$i call tree->add_tip_metadata($id, $key, $val)\n";
-            if ($val) {
-                $tree->add_tip_metadata($id, $key, $val);
-            }
-            else {
-                print "skipping because value is empty\n";
-            }
+            $meta_column{$column_head}{$id} = $val;
         }
+    }
+    shift @header; # remove first element
+    for my $column_head (@header) {
+        print "In newick_to_phyloxml: call tree->add_tip_properties for $column_head: $meta_column{$column_head}\n";
+        $tree->add_tip_properties($meta_column{$column_head});
     }
 }
 
