@@ -198,7 +198,11 @@ sub write_phyloXML {
     if (exists $self->{_properties}) {
         print STDERR "Properties found: refs = ", join(",", keys %{$self->{_properties}}), "\n" if $debug > 2;
         for my $ref (sort keys %{$self->{_properties}}) {
-            $retval .= $indent . " <property ref=\"$ref\" datatype=\"$self->{_tree}{_property_datatype}{$ref}\" applies_to=\"$self->{_tree}{_property_applies_to}{$ref}\">";
+            my $applies_to = "node";
+            $applies_to = $self->{_tree}{_property_applies_to}{$ref} if $self->{_tree}{_property_applies_to}{$ref};
+            my $datatype = "xsd:string";
+            $datatype = $self->{_tree}{_property_datatype}{$ref} if $self->{_tree}{_property_datatype}{$ref};
+            $retval .= $indent . " <property ref=\"$ref\" datatype=\"$datatype\" applies_to=\"$applies_to\">";
             $retval .= $self->{_properties}{$ref} . "</property>\n";
         }
     }
