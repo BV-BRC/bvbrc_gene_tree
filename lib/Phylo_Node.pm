@@ -143,43 +143,14 @@ sub write_newick {
     return $retval
 }
 
-sub add_property {
-    my ($self, $ref, $val) = @_;
+sub add_phyloxml_property {
+    my ($self, $ref, $val, $data_type, $applies_to) = @_;
+    $data_type = "xsd:string" unless $data_type;
+    $applies_to = "node" unless $applies_to;
     $self->{_properties}{$ref} = $val;
-    print STDERR "Phylo_Node:add_single_property just added key=$ref, val=$self->{_properties}{$ref}\n" if $debug > 2;
-}
-
-sub add_single_property {
-    my ($self, $key, $val) = @_;
-    $self->{_properties}{$key} = $val;
-    print STDERR "Phylo_Node:add_single_property just added key=$key, val=$self->{_properties}{$key}\n" if $debug > 2;
-}
-
-sub add_bulk_properties_recursive {
-    my ($self, $metadata) = @_;
-
-	if (exists $self->{'_children'}) {
-		for my $child (@{$self->{'_children'}}) {
-			$child->add_bulk_properties_recursive($metadata);
-		}
-	}
-    if (exists $self->{'_name'} and $self->{'_name'}) {
-        #print STDERR "Look for $self->{'_name'} in $metadata: " if $debug;
-        #print STDERR join(', ', keys(%{$metadata})), "\n" if $debug;
-        my $node_name = $self->{'_name'};
-        if (exists $metadata->{$node_name}) {
-            print STDERR "Found $node_name in metadata, now add key-values.\n" if $debug > 2;
-            #$self->{properties} = ();
-            for my $key (keys %{$metadata->{$node_name}}) {
-                my $val = $metadata->{$node_name}{$key};
-                print STDERR "  bp  $key" if $debug > 2;
-                print STDERR " $val\n" if $debug > 2;
-                $key = "$metadata->{namespace}:$key" if (exists $metadata->{namespace});
-                $self->{_properties}{$key} = $val;
-                print STDERR "  np  $key $self->{_properties}{$key}\n" if $debug > 2;
-            }
-        }
-    }
+    $self->{_property_applies_to}{$ref} = $applies_to;
+    $self->{_property_datatype}{$ref} = $data_type;
+    print STDERR "Phylo_Node:add_phyloxml_property just added key=$ref, val=$self->{_properties}{$ref}\n" if $debug > 0;
 }
 
 sub write_phyloXML {
@@ -198,10 +169,8 @@ sub write_phyloXML {
     if (exists $self->{_properties}) {
         print STDERR "Properties found: refs = ", join(",", keys %{$self->{_properties}}), "\n" if $debug > 2;
         for my $ref (sort keys %{$self->{_properties}}) {
-            my $applies_to = "node";
-            $applies_to = $self->{_tree}{_property_applies_to}{$ref} if $self->{_tree}{_property_applies_to}{$ref};
-            my $datatype = "xsd:string";
-            $datatype = $self->{_tree}{_property_datatype}{$ref} if $self->{_tree}{_property_datatype}{$ref};
+            my $applies_to = $self->{_property_applies_to}{$ref};
+            my $datatype = $self->{_property_datatype}{$ref};
             $retval .= $indent . " <property ref=\"$ref\" datatype=\"$datatype\" applies_to=\"$applies_to\">";
             $retval .= $self->{_properties}{$ref} . "</property>\n";
         }

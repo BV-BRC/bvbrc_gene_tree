@@ -11,7 +11,7 @@
             "required": 1,
             "allow_multiple": 1,
             "filename": "string",
-            "type": ["aligned_dna_fasta", "aligned_protein_fasta", "feature_dna_fasta", "feature_protein_fasta", "feature_group"]
+            "type": ["aligned_dna_fasta", "aligned_protein_fasta", "feature_dna_fasta", "feature_protein_fasta", "feature_group", "genome_group"]
         },
         {
             "id": "trim_threshold",
@@ -50,6 +50,22 @@
             "desc": "Recipe used for FeatureTree analysis",
             "type": "enum",
             "enum": ["RAxML", "PhyML", "FastTree"]
+        },
+        {
+            "id": "feature_metadata_fields",
+            "label": "Gene Metadata Fields",
+            "required": 0,
+            "allow_multiple": 1,
+            "desc": "Fields to be retrieved for each gene.",
+            "type": "string"
+        },
+        {
+            "id": "genome_metadata_fields",
+            "label": "Genome Metadata Fields",
+            "required": 0,
+            "allow_multiple": 1,
+            "desc": "Fields to be retrieved for each genome.",
+            "type": "string"
         },
         {
             "id": "output_path",
