@@ -69,7 +69,7 @@ sub read_file {
     my $self = shift;
     my $fh = shift;
     if ( ! ref($fh) ) {
-        print STDERR "in read_file, not a file handle, open file $fh\n";
+        print STDERR "in read_file, not a file handle, open file $fh\n" if $debug;
         my $temp = undef;
         open $temp, $fh;
         $fh = $temp;
