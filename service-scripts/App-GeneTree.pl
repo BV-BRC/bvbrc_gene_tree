@@ -274,7 +274,7 @@ sub retrieve_sequence_data {
             $seq_data{"type"}="local_file"; # makes it easier to recognize which ones are already written to files
             $seq_data{"num_seqs"}=$num_seqs;
             $seq_data{"genome_metadata"} = \@genome_metadata;
-            $comment = "number of elements = $num_seqs";
+            $comment = "number of genomes = $num_seqs";
             push @{$step_comments}, $comment;
             print STDERR $comment, "\n";
         }
@@ -327,7 +327,20 @@ sub write_sequences_to_file {
         exit(1);
     }
     for my $seq_item (@{$seq_set->{seq_list}}) {
-        print F ">$seq_item->{$id_field}\n$seq_item->{sequence}\n";
+        # try series of possible identifiers 
+        my $seq_id = $seq_item->{$id_field};
+        $seq_id = $seq_item->{accession} unless $seq_id;
+        $seq_id = $seq_item->{feature_id} unless $seq_id;
+        if ($seq_id) {
+            print F ">$seq_id\n$seq_item->{sequence}\n";
+        }
+        else {
+            print STDERR "Cannot find appropriate sequence id for sequence record:\n";
+            for my $key (keys %$seq_item) {
+                print "$key\t$seq_item->{$key}\n";
+            }
+            print STDERR "\n";
+        }
     }
     close F;
 }
@@ -448,12 +461,11 @@ sub build_tree {
     if (exists $params->{genome_metadata_fields}) {
         @genome_metadata_fields = @{$params->{genome_metadata_fields}};
     }
-    ##!!!*** folowing line is for debugging
-    #@genome_metadata_fields = ('species','host_name','geographic_location','collection_date');
 
     my $seq_items = retrieve_sequence_data($app, $params, $api, \@feature_metadata_fields, \@genome_metadata_fields);
     my $unaligned_file = undef;
     my $aligned_file = undef;
+    my $seqids_are_genome_ids = 0; # indicate whether seq identifiers are links to BVBRC genomes in database
     if (scalar @$seq_items == 1) {
         if ($seq_items->[0]->{type} eq 'local_file') {
             if ($seq_items->[0]->{is_aligned}) {
@@ -462,6 +474,8 @@ sub build_tree {
             else {
                 $unaligned_file = $seq_items->[0]->{name};
             }
+            $seqids_are_genome_ids = 1 if exists $seq_items->[0]->{genome_metadata}; 
+            print STDERR "seqids_are_genome_ids = $seqids_are_genome_ids\n";
         }
         elsif ($seq_items->[0]->{type} eq 'feature_group' | $seq_items->[0]->{type} eq 'genome_group') {
             $unaligned_file = "$params->{output_file}_unaligned.fa";
@@ -481,6 +495,7 @@ sub build_tree {
         #die "Too few sequences."
         exit(1);
     }
+    my $alignment_modified = 0; # flag whether alignment is different from input data 
     if ($unaligned_file) {
         $aligned_file = $unaligned_file;
         $aligned_file =~ s/\..{1,6}$//;
@@ -488,21 +503,28 @@ sub build_tree {
         $aligned_file .= ".afa";
         #run_muscle($unaligned_file, $aligned_file);
         run_mafft($unaligned_file, $aligned_file);
-        if ($params->{trim_threshold} or $params->{gap_threshold})
-        {
-            my $trimmed_aligned_file = $aligned_file;
-            $trimmed_aligned_file =~ s/.afa//;
-            $trimmed_aligned_file .= "_trimmed.afa";
-            trim_alignment($aligned_file, $trimmed_aligned_file, $params->{trim_threshold}, $params->{gap_threshold});
+        $alignment_modified = 1;
+    }
+    if ($params->{trim_threshold} or $params->{gap_threshold})
+    {
+        my $trimmed_aligned_file = $aligned_file;
+        $trimmed_aligned_file =~ s/.afa//;
+        $trimmed_aligned_file .= "_trimmed.afa";
+        my $retval = trim_alignment($aligned_file, $trimmed_aligned_file, $params->{trim_threshold}, $params->{gap_threshold});
+        if ($retval) {
+            $alignment_modified = 1;
             print STDERR "trimmed aligned file written to $trimmed_aligned_file\n" if $debug;
             $aligned_file = $trimmed_aligned_file;
         }
     }
+    my $alphabet = $params->{alphabet};
+    push @outputs, [$aligned_file, "aligned_${alphabet}_fasta"] if $alignment_modified;
     open F, $aligned_file;
     $num_seqs = 0;
     my %altered_name;
     my $alignment_text;
     my @seqid_list;
+    my $seqids_are_patric_ids = 0;
     while (<F>) { # count sequences and replace any illegal characters in sequence IDs (not allowed by newick standard)
         if (/^>(\S+)/) {
             $num_seqs++;
@@ -513,6 +535,7 @@ sub build_tree {
                 $altered_name{$seq_id} = $orig;
                 print STDERR "replacing identifier $orig with $seq_id\n";
             }
+            $seqids_are_patric_ids = 1 if $seq_id =~ /fig\|(\d+)/; # note that seqids may be valid for retrieving feature metadata
             push @seqid_list, $seq_id;
             $alignment_text .= ">$seq_id\n";
         }
@@ -534,9 +557,7 @@ sub build_tree {
         #print F $alignment_text;
         #close F;
     }
-    my $alphabet = $params->{alphabet};
-    push @outputs, [$aligned_file, "aligned_${alphabet}_fasta"];
-    run("echo $tmpdir && ls -ltr $tmpdir");
+    run("echo $tmpdir && ls -ltr $tmpdir") if $debug;
 
     my $model = "LG"; # default for protein
     if ($params->{substitution_model}) {
@@ -582,10 +603,11 @@ sub build_tree {
             push @outputs, $tree_graphic;
         }
     }
-    if ($tree_file)
+    print STDERR "tree_file $tree_file\nare_patric_ids = $seqids_are_patric_ids\nare_genome_ids = $seqids_are_genome_ids\n" if $debug;
+    if ($tree_file and ($seqids_are_patric_ids or $seqids_are_genome_ids)) # avoid looking for metadata if ids don't link to database
     {  
         my $metadata = gather_metadata($seq_items, \@seqid_list, \%altered_name, \@feature_metadata_fields, \@genome_metadata_fields); 
-        print "gather_metadata: hash size = " . scalar(keys %$metadata). "\n" if $debug;
+        print STDERR "gather_metadata: hash size = " . scalar(keys %$metadata). "\n" if $debug;
         my $tree = new Phylo_Tree($tree_file);
         if ($metadata and scalar keys %$metadata) {
             my $metadata_file = "$params->{output_file}_metadata.txt";
@@ -594,8 +616,8 @@ sub build_tree {
             for my $field (keys %$metadata) {
                 push @header_fields, $field unless $field eq 'patric_id'; # dont put patric_id in header fields
             }
+            print F join("\t", "SeqId", @header_fields) . "\n";
             if ($debug) {
-                print F "header fields: ", join("\t", "SeqId", @header_fields) . "\n";
                 print STDERR "seqid_list: ", join(' ', @seqid_list), "\n";
                 for my $field (@header_fields) {
                     print STDERR "For md $field: seq keys = ", join(" ", sort keys %{$metadata->{$field}}), "\n";
@@ -653,13 +675,13 @@ sub build_tree {
         
         my $filename = basename($ofile);
         #print STDERR "Output folder = $output_folder\n";
-        print STDERR "Saving $filename => $output_folder as $type\n";
-        if (0) {
+        print STDERR "Saving $filename => $output_folder as $type\n" if $debug;
+        if (0) { # for some reason this doesn't work
            $app->workspace->save_file_to_file($ofile, {}, "$output_folder/$filename", $type, 1,
                (-s $ofile > $shock_cutoff ? 1 : 0), # use shock for larger files
                $global_token);
         }
-        else {
+        else { # fall back to calling CLI
             my $ext = $1 if $ofile =~ /.*\.(\S+)$/;
             my @cmd = ("p3-cp", "-f", "-m", "${ext}=$type", $ofile, "ws:" . $app->result_folder);
             print STDERR "@cmd\n";
@@ -693,11 +715,11 @@ sub gather_metadata {
         my %genome_metadata;
         for my $field (@$genome_fields) {
             $genome_metadata{$field} = ();
-            print STDERR "\ngenmetrec[0] for $field: $seq_items->[0]->{genome_metadata}->[0]->{$field}\n";
+            print STDERR "\ngenmetrec[0] for $field: $seq_items->[0]->{genome_metadata}->[0]->{$field}\n" if $debug;
             for my $record (@{$seq_items->[0]->{genome_metadata}}) {
                 my $genome_id = $record->{genome_id};
                 $genome_metadata{$field}{$genome_id} = $record->{$field};
-                print STDERR "$field\t$genome_id\t$genome_metadata{$field}{$genome_id}\n";
+                print STDERR "$field\t$genome_id\t$genome_metadata{$field}{$genome_id}\n" if $debug;
             }
         }
         end_step("Gather Metadata");
@@ -756,9 +778,9 @@ sub trim_alignment {
     my ($trim_comments, $trim_info) = start_step("Trim Alignment");
     my $comment = "performing trimming on alignment: trim_threshod=$trim_threshold, gap_threhold=$gap_threshold";
     print STDERR "$comment\n";
-    #push @{$trim_comments}, $comment;
+    push @{$trim_comments}, $comment;
     my $alignment = new Sequence_Alignment($aligned_file);
-    print STDERR "trim_alignment: alignment=$alignment\n";
+    print STDERR "trim_alignment: alignment=$alignment\n" if $debug;
     $trim_info->{details} = "Before trimming:\n" .  $alignment->write_stats();
     my $alignment_changed = 0;
     if ($trim_threshold > 0) {
@@ -804,10 +826,14 @@ sub trim_alignment {
         push @{$trim_comments}, $comment;
         print STDERR "$comment\n";
     }
-    $alignment->write_fasta($trimmed_aligned_file);
-    $comment = "writing trimmed alignment to $trimmed_aligned_file\n";
-    print STDERR $comment;
+    if ($alignment_changed) {
+        $alignment->write_fasta($trimmed_aligned_file); 
+        $comment = "writing trimmed alignment to $trimmed_aligned_file\n";
+        push @{$trim_comments}, $comment;
+        print STDERR $comment;
+    }
     end_step("Trim Alignment");
+    return $alignment_changed;
 }
 
 sub run_raxml {
