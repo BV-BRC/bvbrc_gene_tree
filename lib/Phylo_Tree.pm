@@ -48,19 +48,6 @@ sub list_tips {
     $retval;
 }
 
-sub add_tip_metadata {
-    my ($self, $tip_name, $field_name, $value, $provenance) = @_;
-    print STDERR "in Phylo_Tree.add_tip_metadata($self, $tip_name, $field_name, $value)\n";
-    unless (exists $self->{_tips}{$tip_name}) {
-        print STDERR "Hey! $tip_name not found in $self->{_tips}\n";
-        #warn "Tried to add metadata to non-existent tip $tip_name";
-        #return;
-    }
-    my $node = $self->{_tips}{$tip_name};
-    print STDERR "In Phylo_Tree.add_tip_metadata: about to call node->add_single_property($field_name, $value) on $node\n" if $debug > 2;
-    $node->add_single_property($field_name, $value);
-}
-
 sub read_newick {
     my $self = shift;
     my $newick = shift; #either a newick string or a filname
@@ -88,41 +75,39 @@ sub get_input_newick {
     $self->{_newick}
 }
 
-sub add_tip_properties {
-    my ($self, $prop_hashref) = @_;
-    print STDERR "in:add_tip_properties($self, $prop_hashref)\n";
-    print STDERR "prop_hashref = %{$prop_hashref}\n";
-    my ($applies_to, $datatype, $ref) = ('node', 'xsd:string', undef);
+sub add_tip_phyloxml_properties {
+    my ($self, $prop_hashref, $ref, $default_provenance) = @_;
+    print STDERR "in:add_tip_phyloxml_properties($self, $prop_hashref, $ref, $default_provenance)\n" if $debug;
+    print STDERR "prop_hashref = %{$prop_hashref}\n" if $debug;
+    print STDERR "prop_hashref keys = ", join(" ", keys %$prop_hashref), "\n\n";
+    $default_provenance = "BVBRC" unless $default_provenance;
+    my ($applies_to, $datatype) = ('node', 'xsd:string');
+
     $applies_to = $prop_hashref->{'QName:applies_to'} if $prop_hashref->{'QName:applies_to'};
     $datatype = $prop_hashref->{'QName:datatype'} if $prop_hashref->{'QName:datatype'};
     $ref = $prop_hashref->{'column_head'} if $prop_hashref->{'column_head'};
     $ref = $prop_hashref->{'QName:ref'} if $prop_hashref->{'QName:ref'};
-    $self->{'_property_datatype'}{$ref} = $datatype;
-    $self->{'_property_applies_to'}{$ref} = $applies_to;
+    $ref = "$default_provenance:$ref" unless $ref =~ /(.+):(.+)/;
     for my $tip_name (keys %{$self->{_tips}}) {
-        print STDERR "try node $tip_name\n";
+        #print STDERR "try node $tip_name\n" if $debug > 1;
         if (exists $prop_hashref->{$tip_name}) {
             my $value = $prop_hashref->{$tip_name};
-            my $node = $self->{_tips}{$tip_name};
-            $node->add_property($ref, $value);
+            if ($value) {
+                my $node = $self->{_tips}{$tip_name};
+                $node->add_phyloxml_property($ref, $value, $datatype, $applies_to);
+            }
         }
     }
 }
 
-sub add_bulk_properties {
-    my ($self, $metadata, $namespace) = @_;
-    $metadata->{namespace} = "BVBRC";
-    $self->{_root}->add_bulk_properties_recursive($metadata);
-}
-
 sub write_phyloXML {
-    my ($self) = @_;
+    my $self = shift;
     my $retval = "";
     $retval .= '<?xml version="1.0" encoding="UTF-8"?>
 <phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.20/phyloxml.xsd" xmlns="http://www.phyloxml.org">
  <phylogeny rooted="true" rerootable="true">
 ';
-    $retval .= $self->{_root}->write_phyloXML(' ');
+    $retval .= $self->{_root}->write_phyloXML(' ');  # recursively write root and all descendants
     $retval .= " </phylogeny>\n</phyloxml>\n";
 }
 
