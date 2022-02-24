@@ -644,14 +644,16 @@ sub build_tree {
         push @outputs, [$phyloxml_file, "phyloxml"];
         end_step("Write PhyloXML");
 
-        my @relabel_fields = ();
-        for my $field ("species", "product") {
-            push @relabel_fields, $field if (exists $metadata->{$field});
-        }
-        if (scalar @relabel_fields) {
-            print STDERR "Now write a tree with ids substituted with metadata fields: ", join(", ", @relabel_fields), "\n";
-            my $relabeled_newick_file = label_tree_with_metadata($tree_file, $metadata, \@relabel_fields);
-            push @outputs, [$relabeled_newick_file, 'nwk'];
+        if (exists $params->{relabel_tree_fields}) {
+            my @relabel_fields = (@{$params->{relabel_tree_fields}})
+            for my $field ("species", "product") {
+                push @relabel_fields, $field if (exists $metadata->{$field});
+            }
+            if (scalar @relabel_fields) {
+                print STDERR "Now write a tree with ids substituted with metadata fields: ", join(", ", @relabel_fields), "\n";
+                my $relabeled_newick_file = label_tree_with_metadata($tree_file, $metadata, \@relabel_fields);
+                push @outputs, [$relabeled_newick_file, 'nwk'];
+            }
         }
     }
     
