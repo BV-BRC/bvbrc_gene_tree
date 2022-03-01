@@ -645,8 +645,8 @@ sub build_tree {
         end_step("Write PhyloXML");
 
         if (exists $params->{relabel_tree_fields}) {
-            my @relabel_fields = (@{$params->{relabel_tree_fields}})
-            for my $field ("species", "product") {
+            my @relabel_fields;
+            for my $field (@{$params->{relabel_tree_fields}}) { #"species", "product") {
                 push @relabel_fields, $field if (exists $metadata->{$field});
             }
             if (scalar @relabel_fields) {
