@@ -22,7 +22,9 @@ our $global_token;
 
 our $shock_cutoff = 10_000;
 my $max_genome_length = 100_000; #most/all single-sequence viruses are less than this
-my @original_sequence_ids; # list of items requested, can be different from those actually obtained
+my @default_genome_metadata_fields = (
+        "species", "strain", "geographic_group", "isolation_country", "host_group", "host_common_name", "collection_year", "subtype", "lineage", "clade");
+my @default_feature_metadata_fields = ("product", "accession");
 
 our $debug = 0;
 $debug = $ENV{"GeneTreeDebug"} if exists $ENV{"GeneTreeDebug"};
@@ -34,6 +36,7 @@ if ($debug) {
 }
 our @analysis_step => ();# collect info on sequence of analysis steps
 our @step_stack => (); # for nesting of child steps within parent steps
+my @original_sequence_ids; # list of items requested, can be different from those actually obtained
 
 my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
 #$data_url = "https://patricbrc.org/api" if $debug;
@@ -183,11 +186,6 @@ sub retrieve_sequence_data {
             my $seq_list;
             my $na_or_aa = ('aa', 'na')[$params->{alphabet} eq 'DNA']; 
             $seq_list = $api->retrieve_sequences_from_feature_group($feature_group, $na_or_aa, \@copy_of_feature_metadata_fields);
-            #if ($params->{alphabet} eq 'DNA') {
-            #    $seq_list = $api->retrieve_nucleotide_sequences_from_feature_group($feature_group, \@copy_of_feature_metadata_fields);
-            #} else {
-            #    $seq_list = $api->retrieve_protein_sequences_from_feature_group($feature_group, \@copy_of_feature_metadata_fields);
-            #}
             if ($debug) {
                 print STDERR "retreive_sequences_from_feature_group return is $seq_list\n"; 
                 print STDERR "length is ", scalar @$seq_list, "\n"; 
@@ -224,10 +222,11 @@ sub retrieve_sequence_data {
             for my $id (@$genome_ids) {
                 print STDERR "$id\n";
             }
+            push @$genome_metadata_fields, "genome_accessions" unless grep(/genome_accession/, @$genome_metadata_fields);
             my @copy_of_genome_metadata_fields = (@$genome_metadata_fields);
             push @copy_of_genome_metadata_fields, ('genome_id', 'contigs', 'superkingdom', 'genome_length');
             my @genome_metadata = $api->retrieve_genome_metadata($genome_ids, \@copy_of_genome_metadata_fields);
-            print STDERR "retrieve_genome_metadata:\n";
+            print STDERR "retrieve_genome_metadata to test for single-sequence virus under $max_genome_length:\n";
             print STDERR join("\t", ('genome_id', 'contigs', 'superkingdom', 'genome_length')), "\n";
             for my $info (@genome_metadata) {
                 for my $key ('genome_id', 'contigs', 'superkingdom', 'genome_length') {
@@ -447,7 +446,7 @@ sub build_tree {
     my $original_wd = getcwd();
     chdir($tmpdir); # do all work in temporary directory
    
-    my @feature_metadata_fields = ("product", "accession");
+    my @feature_metadata_fields = @default_feature_metadata_fields;
     if (exists $params->{feature_metadata_fields}) {
         @feature_metadata_fields = @{$params->{feature_metadata_fields}};
     }
@@ -455,9 +454,7 @@ sub build_tree {
     push @feature_metadata_fields, "patric_id" unless grep(/patric_id/, @feature_metadata_fields);
     push @feature_metadata_fields, "genome_id" unless grep(/genome_id/, @feature_metadata_fields);
 
-    my @genome_metadata_fields = (
-        "species", "strain", "geographic_group", "isolation_country", "host_group", "host_common_name", "collection_year", "subtype", "lineage", "clade");
-
+    my @genome_metadata_fields = @default_genome_metadata_fields;
     if (exists $params->{genome_metadata_fields}) {
         @genome_metadata_fields = @{$params->{genome_metadata_fields}};
     }
@@ -647,14 +644,16 @@ sub build_tree {
         push @outputs, [$phyloxml_file, "phyloxml"];
         end_step("Write PhyloXML");
 
-        my @relabel_fields = ();
-        for my $field ("species", "product") {
-            push @relabel_fields, $field if (exists $metadata->{$field});
-        }
-        if (scalar @relabel_fields) {
-            print STDERR "Now write a tree with ids substituted with metadata fields: ", join(", ", @relabel_fields), "\n";
-            my $relabeled_newick_file = label_tree_with_metadata($tree_file, $metadata, \@relabel_fields);
-            push @outputs, [$relabeled_newick_file, 'nwk'];
+        if (exists $params->{relabel_tree_fields}) {
+            my @relabel_fields;
+            for my $field (@{$params->{relabel_tree_fields}}) { #"species", "product") {
+                push @relabel_fields, $field if (exists $metadata->{$field});
+            }
+            if (scalar @relabel_fields) {
+                print STDERR "Now write a tree with ids substituted with metadata fields: ", join(", ", @relabel_fields), "\n";
+                my $relabeled_newick_file = label_tree_with_metadata($tree_file, $metadata, \@relabel_fields);
+                push @outputs, [$relabeled_newick_file, 'nwk'];
+            }
         }
     }
     
@@ -719,7 +718,7 @@ sub gather_metadata {
             for my $record (@{$seq_items->[0]->{genome_metadata}}) {
                 my $genome_id = $record->{genome_id};
                 $genome_metadata{$field}{$genome_id} = $record->{$field};
-                print STDERR "$field\t$genome_id\t$genome_metadata{$field}{$genome_id}\n" if $debug;
+                #print STDERR "$field\t$genome_id\t$genome_metadata{$field}{$genome_id}\n" if $debug;
             }
         }
         end_step("Gather Metadata");
