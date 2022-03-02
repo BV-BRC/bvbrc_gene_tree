@@ -605,7 +605,8 @@ sub build_tree {
     {  
         my $metadata = gather_metadata($seq_items, \@seqid_list, \%altered_name, \@feature_metadata_fields, \@genome_metadata_fields); 
         print STDERR "gather_metadata: hash size = " . scalar(keys %$metadata). "\n" if $debug;
-        my $tree = new Phylo_Tree($tree_file);
+        my $tree_type = ('genome_tree', 'gene_tree')[$seqids_are_patric_ids];
+        my $tree = new Phylo_Tree($tree_file, $tree_type);
         if ($metadata and scalar keys %$metadata) {
             my $metadata_file = "$params->{output_file}_metadata.txt";
             open F, ">$metadata_file";

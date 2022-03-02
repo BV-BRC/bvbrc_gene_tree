@@ -7,7 +7,7 @@ sub set_debug { $debug = shift;
     Phylo_Node::set_debug($debug)}
 
 sub new {
-    my ($class, $newick, $support_type) = @_;
+    my ($class, $newick, $type, $support_type) = @_;
     if ($debug) {
         print(STDERR "in Phylo_Tree constructor\n");
         print(STDERR " class = $class\n");
@@ -19,6 +19,7 @@ sub new {
     $self->{_root} = {};
     $self->{_annot} = {};
     $self->{_tips} = {};
+    $self->{_type} = $type if $type;
     $self->{_support_type} = {$support_type} if $support_type;
     $self->{'_property_datatype'} = {};
     $self->{'_property_applies_to'} = {};
@@ -105,8 +106,10 @@ sub write_phyloXML {
     my $retval = "";
     $retval .= '<?xml version="1.0" encoding="UTF-8"?>
 <phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.20/phyloxml.xsd" xmlns="http://www.phyloxml.org">
- <phylogeny rooted="true" rerootable="true">
-';
+ <phylogeny rooted="true" rerootable="true"';
+    $retval .= " type=\"$self->{_type}\"" if $self->{_type};
+    $retval .= " support_type=\"$self->{_support_type}\"" if $self->{_support_type};
+    $retval .= ">\n";
     $retval .= $self->{_root}->write_phyloXML(' ');  # recursively write root and all descendants
     $retval .= " </phylogeny>\n</phyloxml>\n";
 }
