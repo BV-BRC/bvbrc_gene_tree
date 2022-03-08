@@ -37,6 +37,7 @@ if ($debug) {
 our @analysis_step => ();# collect info on sequence of analysis steps
 our @step_stack => (); # for nesting of child steps within parent steps
 my @original_sequence_ids; # list of items requested, can be different from those actually obtained
+my $sequence_identifier_type; # feature_id or genome_id or user_specified
 
 my $data_url = Bio::KBase::AppService::AppConfig->data_api_url;
 #$data_url = "https://patricbrc.org/api" if $debug;
@@ -95,6 +96,7 @@ sub write_report {
         my $svg_text = read_file($tree_graphic_file);
         print F $svg_text, "\n\n";
     }
+    else { print STDERR "Tree graphic file not found: $tree_graphic_file\n"; }
     print F "<h2>Analysis Steps</h2>\n";
     my $start_time = $analysis_step[0]->{start_time};
     my $time_string = localtime($start_time);
@@ -157,14 +159,50 @@ sub retrieve_sequence_data {
             $local_file =~ s/.*\///;
             print STDERR "About to copy file $sequence_item->{filename} to $local_file\n";
             $app->workspace->download_file($sequence_item->{filename}, $local_file, 1, $global_token);
+            my @seq_list;
             open F, $local_file;
+            my $seq_item;
             while (<F>) {
-                $num_seqs++ if /^>(\S+)/;
-                push @original_sequence_ids, $1;
+                if (/^>(\S+)/) {
+                    my $user_identifier = $1;
+                    push @original_sequence_ids, $user_identifier;
+                    my %seq_item_hash = ();
+                    $seq_item = \%seq_item_hash;
+                    $seq_item->{sequence} = '';
+                    if ($user_identifier =~ /[[]():]/) {
+                        $seq_item->{original_id} = $user_identifier;
+                        $user_identifier =~ tr/:()[]/_____/; # replace any bad characters with underscores
+                        print STDERR "replacing identifier $seq_item->{original_id} with $user_identifier\n";
+                    }
+                    $seq_item->{user_identifier} = $user_identifier;
+                    if ($user_identifier =~ /(fig\|\d+\.\d+\..{3}\.\d+)/) {
+                        my $patric_id = $1;
+                        $seq_item->{patric_id} = $patric_id;
+                        $seq_data{database_link} = 'patric_id';
+                        my $feature_metadata = retrieve_feature_metadata_by_patric_id($patric_id, $feature_metadata_fields);
+                        for my $field (@$feature_metadata_fields) {
+                            if (exists $feature_metadata->{$field}) {
+                                $seq_item->{$field} = $feature_metadata->{$field};
+                            }
+                        }
+                    }
+                    elsif ($user_identifier =~ /(acc\|):?(\d+\.\d+$)/) {
+                        $seq_item->{genome_id} = $1;
+                        $seq_data{database_link} = 'genome_id';
+                    }
+                    $num_seqs++;
+                }
+                else {
+                    chomp;
+                    $seq_item->{sequence} .= $_;
+                }
+                push @seq_list, $seq_item;
             }
             close F;
+            $seq_data{seq_list} = \@seq_list;
+            $seq_data{"sequence_identifier_type"}="user_specified"; 
             $seq_data{"name"}=$local_file;
-            $seq_data{"type"}="local_file"; # makes it easier to recognize which ones are already written to files
+            $seq_data{"storage"}="seq_list"; # makes it easier to recognize which ones are already written to files
             $seq_data{"num_seqs"}=$num_seqs;
             $seq_data{"is_aligned"} = $sequence_item->{type} =~ /ALIGNED/i; # could be aligned_dna_fasta or aligned_protein_fasta
         }
@@ -172,7 +210,6 @@ sub retrieve_sequence_data {
             # need to get feature sequences from database 
             my $feature_group = $sequence_item->{filename};
             $seq_data{"name"} = $feature_group;
-            $seq_data{"type"}="feature_group"; 
             $comment = "retrieving sequences for feature group $feature_group";
             print STDERR $comment, "\n";
             push @{$step_comments}, $comment;
@@ -196,33 +233,36 @@ sub retrieve_sequence_data {
             }
             $seq_data{"seq_list"} = $seq_list;
             $num_seqs = scalar @$seq_list;
-            $seq_data{"type"}='feature_group';
+            $seq_data{"storage"}='seq_list';
+            $seq_data{database_link}='feature_id';
+            $seq_data{"sequence_identifier_type"}="feature_id"; 
             $seq_data{"num_seqs"}= $num_seqs;
             for my $record (@$seq_list) {
-                push @original_sequence_ids, $record->{patric_id};
+                push @original_sequence_ids, $record->{feature_id};
             }
             $comment = "number of elements = $num_seqs";
             push @{$step_comments}, $comment;
             print STDERR $comment, "\n";
         }
         elsif ($sequence_item->{type} eq "genome_group") {
-            if (scalar @{$params->{sequences}} > 1) {
+            if (0 and scalar @{$params->{sequences}} > 1) {
                 print STDERR "Genome group $sequence_item->{filename} combined with other sequence inputs. This case is not handled yet. Exiting.\n";
                 `cd ..`; # to allow temp directory to be deleted
                 exit(1);
             }
-            $feature_metadata_fields = \(); # we will not be using these
+            #$feature_metadata_fields = \(); # we will not be using these, mixing genome group and feature group not allowed
             # need to check genomes are:
             #   1) single-sequence (not multiple contigs)
             #   2) short enough (below threshold length specified in json parameters?)
-            $comment = "retrieving sequences for genome group $sequence_item->{filename}\n";
+            my $genome_group = $sequence_item->{filename};
+            $comment = "retrieving sequences for genome group $genome_group\n";
             print STDERR "$comment\n";
             push @{$step_comments}, $comment;
-            my $genome_ids = $api->retrieve_patric_ids_from_genome_group($sequence_item->{filename});
+            my $genome_ids = $api->retrieve_patric_ids_from_genome_group($genome_group);
             for my $id (@$genome_ids) {
                 print STDERR "$id\n";
             }
-            push @$genome_metadata_fields, "genome_accessions" unless grep(/genome_accession/, @$genome_metadata_fields);
+            push @$genome_metadata_fields, "genome_accession" unless grep(/genome_accession/, @$genome_metadata_fields);
             my @copy_of_genome_metadata_fields = (@$genome_metadata_fields);
             push @copy_of_genome_metadata_fields, ('genome_id', 'contigs', 'superkingdom', 'genome_length');
             my @genome_metadata = $api->retrieve_genome_metadata($genome_ids, \@copy_of_genome_metadata_fields);
@@ -253,26 +293,35 @@ sub retrieve_sequence_data {
             print STDERR "All genomes are viruses, all have a single sequence, all are under $max_genome_length bases.\n";
             push @original_sequence_ids, @$genome_ids;
             $num_seqs = scalar @$genome_ids;
-            my $fasta_file = $sequence_item->{filename};
-            $fasta_file =~ s/.*\///; # remove everything upto and including last slash
-            $fasta_file =~ tr/ /_/;  # replace any blank spaces
-            $fasta_file .= ".fasta";
-            my $genome_seqs = $api->retrieve_contigs_in_genomes_to_temp($genome_ids);
-            #print STDERR "retrieve_contigs_in_genomes_to_temp returned $genome_seqs\n";
-            print STDERR "saving sequences to $fasta_file\n";
-            open OUT, ">$fasta_file";
-            open IN, $genome_seqs;
-            while (<IN>) {
-                s/>accn\|(\d+\.\d+).con.*/>$1/; # replace definition line with simple genome_id
-                print OUT $_;
+            for my $info (@genome_metadata) {
+                my $genome_id = $info->{genome_id};
+                my ($resp, $data) = $api->submit_query('genome_sequence', "eq(genome_id,$genome_id)", "patric_id,plfam_id,sequence");
+                print "for $genome_id: resp = $resp\tdata=$data\tdata->[0]=$data->[0]\n" if $debug;
+                $info->{sequence} = $data->[0]->{sequence};
             }
-            unlink($genome_seqs);
-            close OUT;
-            
-            $seq_data{"name"}=$fasta_file;
-            $seq_data{"type"}="local_file"; # makes it easier to recognize which ones are already written to files
+            if (0) {
+                my $fasta_file = $sequence_item->{filename};
+                $fasta_file =~ s/.*\///; # remove everything upto and including last slash
+                $fasta_file =~ tr/ /_/;  # replace any blank spaces
+                $fasta_file .= ".fasta";
+                my $genome_seqs = $api->retrieve_contigs_in_genomes_to_temp($genome_ids);
+                #print STDERR "retrieve_contigs_in_genomes_to_temp returned $genome_seqs\n";
+                print STDERR "saving sequences to $fasta_file\n";
+                open OUT, ">$fasta_file";
+                open IN, $genome_seqs;
+                while (<IN>) {
+                    s/>accn\|(\d+\.\d+).con.*/>$1/; # replace definition line with simple genome_id
+                    print OUT $_;
+                }
+                unlink($genome_seqs);
+                close OUT;
+            }
+            $seq_data{"name"}=$genome_group;
+            $seq_data{"storage"}="seq_list"; # makes it easier to recognize which ones are already written to files
+            $seq_data{"sequence_identifier_type"}="genome_id"; 
+            $seq_data{database_link} = 'genome_id';
             $seq_data{"num_seqs"}=$num_seqs;
-            $seq_data{"genome_metadata"} = \@genome_metadata;
+            $seq_data{"seq_list"} = \@genome_metadata;
             $comment = "number of genomes = $num_seqs";
             push @{$step_comments}, $comment;
             print STDERR $comment, "\n";
@@ -280,18 +329,28 @@ sub retrieve_sequence_data {
         elsif ($sequence_item->{type} eq "feature_ids") {
             # need to get feature sequences from database 
             $comment = "retrieving sequences for feature ids";
-            $comment .= ", this functionality not implemented yet";
+            $comment .= ", this functionality in testing";
             push @{$step_comments}, $comment;
             my $feature_ids = $sequence_item->{sequences};
-            exit(1);
-            #print STDERR "\tfeature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
-            #if ($params->{alphabet} eq 'DNA') {
-            #    $sequence_item->{sequences} = $api->retrieve_nucleotide_feature_sequence($feature_ids);
-            #}
-            #else {
-            #    $sequence_item->{sequences} = $api->retrieve_protein_feature_sequence($feature_ids);
-            #}
-            #$num_seqs = scalar keys %{$sequence_item->{sequences}};
+            print STDERR "\tfeature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
+            my $query="in(feature_id," . join(',', @$feature_ids) . ")";
+            my ($resp, $seq_list) = $api->submit_query('genome_feature', $query, "patric_id,plfam_id,sequence");
+            my @md5s;
+            my $seq_type = ('aa_sequence_md5', 'na_sequence_md5')[$params->{alphabet} eq 'DNA'];
+            for my $item  (@$seq_list) {
+                push @md5s, $item->{$seq_type};
+            }
+            my $seqs = $api->lookup_sequence_data_hash(\@md5s);
+            
+            for my $item  (@$seq_list) {
+                $item->{sequence} = $seqs->{$item->{$seq_type}};
+            }
+            $num_seqs = scalar keys %{$sequence_item->{sequences}};
+            $seq_data{"num_seqs"}=$num_seqs;
+            $seq_data{"type"}="feature_list";
+            $seq_data{"sequence_identifier_type"}="feature_id"; 
+            $seq_data{"database_link"}="feature_id"; 
+            $seq_data{seq_list} = $seq_list;
         }
         $comment = "number of sequences retrieved: $num_seqs";
         push @{$step_comments}, $comment;
@@ -308,127 +367,6 @@ sub retrieve_sequence_data {
     }
     end_step("Gather Sequence Data");
     return \@seq_items;
-}
-
-sub write_sequences_to_file {
-    my ($seq_set, $unaligned_file) = @_;
-    open F, ">$unaligned_file";
-    my $id_field = "";
-    if ($seq_set->{type} eq "feature_group") {
-        $id_field = "patric_id";
-    }
-    elsif ($seq_set->{type} eq "genome_group") {
-        $id_field = "genome_id";
-    }
-    else {
-        print STDERR "warning: write_sequences_to_file called on a seq_set that is neither feature_group nor genome_group\n";
-        print STDERR "name = $seq_set->{name}, type = $seq_set->{type}\n";
-        exit(1);
-    }
-    for my $seq_item (@{$seq_set->{seq_list}}) {
-        # try series of possible identifiers 
-        my $seq_id = $seq_item->{$id_field};
-        $seq_id = $seq_item->{accession} unless $seq_id;
-        $seq_id = $seq_item->{feature_id} unless $seq_id;
-        if ($seq_id) {
-            print F ">$seq_id\n$seq_item->{sequence}\n";
-        }
-        else {
-            print STDERR "Cannot find appropriate sequence id for sequence record:\n";
-            for my $key (keys %$seq_item) {
-                print "$key\t$seq_item->{$key}\n";
-            }
-            print STDERR "\n";
-        }
-    }
-    close F;
-}
-
-sub merge_sequence_sets_to_file {
-    my ($seq_items, $output_file) = @_;
-    my ($step_comments, $step_info) = start_step("Merge Sequence Sets");
-    my $comment = "merge_sequence_sets_to_file: $seq_items, $output_file";
-    print STDERR $comment, "\n" if $debug;
-    push @{$step_comments}, $comment;
-    print STDERR "$comment\n";
-    # goal is to end up with all sequences written to a single unaligned FASTA file
-    # only needed when multiple input sequence sets are passed
-    my @seq_list;
-    for my $seq_set (@$seq_items) {
-        if ($seq_set->{type} eq 'local_file') {
-            $comment = "read sequences from $seq_set->{name}";
-            #push @{$step_comments}, $comment;
-            print STDERR "$comment\n";
-            open INDATA, $seq_set->{name};
-            my $seqid = '';
-            my $sequence = '';
-            my $num_seqs = 0;
-            while (<INDATA>) {
-                if (/^>(\S+)/) {
-                    if ($seqid) {
-                        push @seq_list, [$seqid, $sequence];
-                        $num_seqs++;
-                    }
-                    $seqid = $1;
-                    $sequence = '';
-                }
-                else {
-                    chomp;
-                    tr/-//d; # strip out gap characters;
-                    $sequence .= $_;
-                }
-            }
-            if ($seqid) {
-                push @seq_list, [$seqid, $sequence];
-                $num_seqs++;
-            }
-            $comment = "found $num_seqs sequences in $seq_set->{name}.";
-            #push @{$step_comments}, $comment;
-            print STDERR "$comment\n";
-        }
-        elsif ($seq_set->{type} eq 'feature_group') { #handle case of feature_group (sequences in memory)
-            my $num_seqs = 0;
-            for my $seq_item (@{$seq_set->{seq_list}}) {
-                #print "keys to seq_list item as hash: " . join("\n", keys %$seq_item);
-                $num_seqs++;
-                push @seq_list, [$seq_item->{patric_id}, $seq_item->{sequence}];
-            }
-            $comment = "found $num_seqs sequences in $seq_set->{name}.";
-            #push @{$step_comments}, $comment;
-            print STDERR "$comment\n";
-        }
-    }
-
-    open OUTDATA, ">$output_file";
-    my %seq_hash;
-    my $numseqs = 0;
-    for my $seq_item (@seq_list) {
-        my ($seqid, $sequence) = @$seq_item;
-        if (exists $seq_hash{$seqid}) { # fix up non-unique seq identifier
-            $comment = "got repeated sequence ID $seqid";
-            if ($sequence eq $seq_hash{$seqid}) {
-                $comment .= " and sequences are identical: dropping second occurrence.";
-                continue;
-            }
-            else {
-                my $suffix = 2;
-                while (exists $seq_item->{sequences}->{$seqid . "_$suffix"}) {
-                    $suffix++
-                }
-                $seqid = $seqid . "_$suffix";
-                $comment .= " but sequences differ, renaming to $seqid.";
-            }
-            push @{$step_comments}, $comment;
-        }
-        print OUTDATA ">$seqid\n$sequence\n";
-        $seq_hash{$seqid} = $sequence;
-        $numseqs++;
-    }
-    close OUTDATA;
-    $comment = "$numseqs sequences written to $output_file";
-    push @{$step_comments}, $comment;
-    print STDERR "$comment\n";
-    end_step("Merge Sequence Sets");
 }
 
 sub build_tree {
@@ -450,8 +388,8 @@ sub build_tree {
     if (exists $params->{feature_metadata_fields}) {
         @feature_metadata_fields = @{$params->{feature_metadata_fields}};
     }
-    #ensure that patric_id and genome_id are retrieved
-    push @feature_metadata_fields, "patric_id" unless grep(/patric_id/, @feature_metadata_fields);
+    #ensure that feature_id and genome_id are retrieved
+    push @feature_metadata_fields, "feature_id" unless grep(/feature_id/, @feature_metadata_fields);
     push @feature_metadata_fields, "genome_id" unless grep(/genome_id/, @feature_metadata_fields);
 
     my @genome_metadata_fields = @default_genome_metadata_fields;
@@ -460,100 +398,54 @@ sub build_tree {
     }
 
     my $seq_items = retrieve_sequence_data($app, $params, $api, \@feature_metadata_fields, \@genome_metadata_fields);
-    my $unaligned_file = undef;
-    my $aligned_file = undef;
     my $seqids_are_genome_ids = 0; # indicate whether seq identifiers are links to BVBRC genomes in database
-    if (scalar @$seq_items == 1) {
-        if ($seq_items->[0]->{type} eq 'local_file') {
-            if ($seq_items->[0]->{is_aligned}) {
-                $aligned_file = $seq_items->[0]->{name};
-            }
-            else {
-                $unaligned_file = $seq_items->[0]->{name};
-            }
-            $seqids_are_genome_ids = 1 if exists $seq_items->[0]->{genome_metadata}; 
-            print STDERR "seqids_are_genome_ids = $seqids_are_genome_ids\n";
-        }
-        elsif ($seq_items->[0]->{type} eq 'feature_group' | $seq_items->[0]->{type} eq 'genome_group') {
-            $unaligned_file = "$params->{output_file}_unaligned.fa";
-            write_sequences_to_file($seq_items->[0], $unaligned_file);
-        }
-    }
-    else {
-        $unaligned_file = "$params->{output_file}_unaligned.fa";
-        merge_sequence_sets_to_file($seq_items, $unaligned_file);
-    }
-    my $num_seqs = 0;
-    for my $seq_set (@$seq_items) {
-        $num_seqs += $seq_set->{num_seqs};
-    }
+    my $database_link_type = undef;
+    my $metadata = organize_metadata($seq_items, \@feature_metadata_fields, \@genome_metadata_fields); 
+    my $num_seqs = scalar keys %{$metadata->{sequence_id}};
     if ($num_seqs < 4) { #need at least 4 seuqences to build a tree
         print STDERR "After retrieval, number of sequences is $num_seqs, less than 4. Cannot build a tree.\n";
         #die "Too few sequences."
         exit(1);
     }
+
+    my $is_aligned = 0;
+    my $unaligned_fasta_file = "$params->{output_file}_unaligned.fa";
+    my $aligned_fasta_file = "$params->{output_file}_aligned.fa";
+    my $outfile;
+    if (scalar @$seq_items == 1 and $seq_items->[0]->{is_aligned}) {
+        open $outfile, ">$aligned_fasta_file";
+        $is_aligned = 1;
+    }
+    else {
+        open $outfile, ">$unaligned_fasta_file" or die "could not open fasta file for output";
+    }
+    for my $seq_id (sort keys %{$metadata->{sequence_id}}) {
+        print $outfile ">$seq_id\n";
+        print STDERR "writing sequence for $seq_id\n";
+        my $sequence = $metadata->{sequence_id}{$seq_id}->{sequence};
+        $sequence =~ tr/-//d unless $is_aligned;
+        print $outfile $sequence, "\n";
+    }
     my $alignment_modified = 0; # flag whether alignment is different from input data 
-    if ($unaligned_file) {
-        $aligned_file = $unaligned_file;
-        $aligned_file =~ s/\..{1,6}$//;
-        $aligned_file =~ s/unaligned/aligned/;
-        $aligned_file .= ".afa";
-        #run_muscle($unaligned_file, $aligned_file);
-        run_mafft($unaligned_file, $aligned_file);
+    unless ($is_aligned) {
+        #run_muscle($unaligned_file, $aligned_fasta_file);
+        run_mafft($unaligned_fasta_file, $aligned_fasta_file);
         $alignment_modified = 1;
     }
     if ($params->{trim_threshold} or $params->{gap_threshold})
     {
-        my $trimmed_aligned_file = $aligned_file;
+        my $trimmed_aligned_file = $aligned_fasta_file;
         $trimmed_aligned_file =~ s/.afa//;
         $trimmed_aligned_file .= "_trimmed.afa";
-        my $retval = trim_alignment($aligned_file, $trimmed_aligned_file, $params->{trim_threshold}, $params->{gap_threshold});
+        my $retval = trim_alignment($aligned_fasta_file, $trimmed_aligned_file, $params->{trim_threshold}, $params->{gap_threshold});
         if ($retval) {
             $alignment_modified = 1;
             print STDERR "trimmed aligned file written to $trimmed_aligned_file\n" if $debug;
-            $aligned_file = $trimmed_aligned_file;
+            $aligned_fasta_file = $trimmed_aligned_file;
         }
     }
     my $alphabet = $params->{alphabet};
-    push @outputs, [$aligned_file, "aligned_${alphabet}_fasta"] if $alignment_modified;
-    open F, $aligned_file;
-    $num_seqs = 0;
-    my %altered_name;
-    my $alignment_text;
-    my @seqid_list;
-    my $seqids_are_patric_ids = 0;
-    while (<F>) { # count sequences and replace any illegal characters in sequence IDs (not allowed by newick standard)
-        if (/^>(\S+)/) {
-            $num_seqs++;
-            my $seq_id = $1;
-            if ($seq_id =~ /[[]():]/) {
-                my $orig = $seq_id;
-                $seq_id =~ tr/:()[]/_____/; # replace any bad characters with underscores
-                $altered_name{$seq_id} = $orig;
-                print STDERR "replacing identifier $orig with $seq_id\n";
-            }
-            $seqids_are_patric_ids = 1 if $seq_id =~ /fig\|(\d+)/; # note that seqids may be valid for retrieving feature metadata
-            push @seqid_list, $seq_id;
-            $alignment_text .= ">$seq_id\n";
-        }
-        else {
-            $alignment_text .= $_;
-        }
-    }
-    if ($num_seqs < 4) { #need at least 4 seuqences to build a tree
-        print STDERR "After looking at aligned seqs, number of sequences is $num_seqs, less than 4. Cannot build a tree.\n";
-        exit(1);
-    }
-    if (scalar keys %altered_name) {  # if sequence IDs needed to be altered, write altered alignment
-        my $altered_aligned_file = $aligned_file;
-        $altered_aligned_file =~ s/\..{3,6}$//; #remove extension
-        $altered_aligned_file .= "_altered_ids.afa";
-        $aligned_file = $altered_aligned_file;
-        write_file($aligned_file, $alignment_text);
-        #open F, ">$aligned_file";
-        #print F $alignment_text;
-        #close F;
-    }
+    push @outputs, [$aligned_fasta_file, "aligned_${alphabet}_fasta"] if $alignment_modified;
     run("echo $tmpdir && ls -ltr $tmpdir") if $debug;
 
     my $model = "LG"; # default for protein
@@ -571,17 +463,17 @@ sub build_tree {
     print STDERR "About to call tree program $recipe\n";
     my @tree_outputs;
     if ($recipe eq 'raxml') {
-        @tree_outputs = run_raxml($aligned_file, $alphabet, $model, $output_name);
+        @tree_outputs = run_raxml($aligned_fasta_file, $alphabet, $model, $output_name);
     } elsif ($recipe eq 'phyml') {
-        my $alignment = new Sequence_Alignment($aligned_file);
-        my $phylip_file = $aligned_file;
+        my $alignment = new Sequence_Alignment($aligned_fasta_file);
+        my $phylip_file = $aligned_fasta_file;
         $phylip_file =~ s/\..{2,4}$//;
         $phylip_file .= ".phy";
         $alignment->write_phylip($phylip_file);
         @tree_outputs = run_phyml($phylip_file, $alphabet, $model, $output_name);
     } elsif (lc($recipe) eq 'fasttree') {
-        #$alignment->write_fasta($aligned_file);
-        @tree_outputs = run_fasttree($aligned_file, $alphabet, $model, $output_name);
+        #$alignment->write_fasta($aligned_fasta_file);
+        @tree_outputs = run_fasttree($aligned_fasta_file, $alphabet, $model, $output_name);
     } else {
         die "Unrecognized recipe: $recipe \n";
     }
@@ -596,35 +488,49 @@ sub build_tree {
         my($ofile, $type) = @$output;
         if ($type eq 'nwk') {
             $tree_file = $ofile;
-            $tree_graphic = generate_tree_graphic($tree_file, $num_seqs);
-            push @outputs, $tree_graphic;
+            my $graphic_format = 'SVG';
+            $tree_graphic = generate_tree_graphic($tree_file, $num_seqs, $graphic_format);
+            push @outputs, [$tree_graphic, $graphic_format];
         }
     }
-    print STDERR "tree_file $tree_file\nare_patric_ids = $seqids_are_patric_ids\nare_genome_ids = $seqids_are_genome_ids\n" if $debug;
-    if ($tree_file and ($seqids_are_patric_ids or $seqids_are_genome_ids)) # avoid looking for metadata if ids don't link to database
+    print STDERR "tree_file $tree_file\n";
+    my $database_link = undef;
+    for my $seq_data (@$seq_items) {
+        if (exists $seq_data->{database_link}) {
+            print STDERR "datbase_link for $seq_data->{name} is $seq_data->{database_link}\n" if $debug;
+            if ($database_link and $database_link ne $seq_data->{database_link}) {
+                print STDERR "Two different database_links available: $database_link ne $seq_data->{database_link}\n";
+            }
+            $database_link = $seq_data->{database_link};
+        }
+    }
+    my $tree_type = ('gene_tree', 'genome_tree')[$database_link eq 'genome_id'];
+    my $tree = new Phylo_Tree($tree_file, $tree_type) if $tree_file;
+    if ($tree_file and $database_link) # avoid looking for metadata if ids don't link to database
     {  
-        my $metadata = gather_metadata($seq_items, \@seqid_list, \%altered_name, \@feature_metadata_fields, \@genome_metadata_fields); 
-        print STDERR "gather_metadata: hash size = " . scalar(keys %$metadata). "\n" if $debug;
-        my $tree_type = ('genome_tree', 'gene_tree')[$seqids_are_patric_ids];
-        my $tree = new Phylo_Tree($tree_file, $tree_type);
-        if ($metadata and scalar keys %$metadata) {
+        if ($metadata and scalar keys %$metadata > 1) {
+            print STDERR "metadata: hash size = " . scalar(keys %$metadata). "\n" if $debug;
             my $metadata_file = "$params->{output_file}_metadata.txt";
             open F, ">$metadata_file";
             my @header_fields = ();
-            for my $field (keys %$metadata) {
-                push @header_fields, $field unless $field eq 'patric_id'; # dont put patric_id in header fields
+            for my $field (sort keys %$metadata) {
+                next if $field eq 'sequence_id'; # dont put key field in header fields
+                next unless scalar keys %{$metadata->{$field}}; # dont add empty columns
+                push @header_fields, $field;
+                $tree->add_tip_phyloxml_properties($metadata->{$field}, $field, "BVBRC");
             }
             print F join("\t", "SeqId", @header_fields) . "\n";
+            my @seqid_list = sort keys %{$metadata->{sequence_id}};
             if ($debug) {
                 print STDERR "seqid_list: ", join(' ', @seqid_list), "\n";
                 for my $field (@header_fields) {
-                    print STDERR "For md $field: seq keys = ", join(" ", sort keys %{$metadata->{$field}}), "\n";
+                    print STDERR "For md $field: ", scalar keys %{$metadata->{$field}}, "valid entries.\n";
                 }
             }
             for my $id (@seqid_list) {
                 print F $id;
                 for my $field (@header_fields) {
-                    my $val = "na";
+                    my $val = "";
                     $val = $metadata->{$field}{$id} if exists $metadata->{$field}{$id};
                     print F "\t$val";
                 }
@@ -632,11 +538,6 @@ sub build_tree {
             }
             close F;
             push @outputs, [$metadata_file, "tsv"];
-            
-            for my $field (@feature_metadata_fields, @genome_metadata_fields) {
-                print STDERR "add metadata field: $field\n";
-                $tree->add_tip_phyloxml_properties($metadata->{$field}, $field, "BVBRC");
-            }
         }
         my ($step_comments, $step_info) = start_step("Write PhyloXML");
         my $phyloxml_data = $tree->write_phyloXML();
@@ -692,94 +593,115 @@ sub build_tree {
             }
         }
     }
+    print STDERR "$tmpdir\n" if $debug;
     chdir($original_wd); # change back to the starting working directory
     my $time2 = `date`;
-    write_output("Start: $time1"."End:   $time2", "$tmpdir/DONE");
+    print STDERR "Start: $time1\tEnd:   $time2\n";
+    write_output("Start: $time1\tEnd:   $time2", "$tmpdir/DONE");
 }
 
-sub gather_metadata {
-    my ($seq_items, $seqid_ar, $altered_names_hr, $feature_fields, $genome_fields) = @_; 
-    my ($step_comments, $step_info) = start_step("Gather Metadata");
-    my $comment = "feature ids: ". join(", ", @{$seqid_ar});
-    push @{$step_comments}, $comment;
-    print STDERR "$comment\n"; 
-    $comment = "feature metadata fields: ". join(", ", @{$feature_fields});
-    push @{$step_comments}, $comment;
-    print STDERR "$comment\n"; 
-    my $comment = "in gather_metadata: feature ids= $seqid_ar\n";
-    print STDERR $comment;
-    if (exists $seq_items->[0]->{genome_metadata}) {
-        # case of aligning whole viral genomes, we already have the genome metadata, no features as such
-        print STDERR "Genome metadata in hand, reformat and return.\n" if $debug;
-        print STDERR "Genome fields: @$genome_fields\n";
-        my %genome_metadata;
-        for my $field (@$genome_fields) {
-            $genome_metadata{$field} = ();
-            print STDERR "\ngenmetrec[0] for $field: $seq_items->[0]->{genome_metadata}->[0]->{$field}\n" if $debug;
-            for my $record (@{$seq_items->[0]->{genome_metadata}}) {
-                my $genome_id = $record->{genome_id};
-                $genome_metadata{$field}{$genome_id} = $record->{$field};
-                #print STDERR "$field\t$genome_id\t$genome_metadata{$field}{$genome_id}\n" if $debug;
-            }
-        }
-        end_step("Gather Metadata");
-        return \%genome_metadata;
-    }
-    my $feature_metadata = get_feature_metadata($seq_items, $seqid_ar, $altered_names_hr, $feature_fields);
-    #get_feature_metadata($feature_metadata, $seq_ids_ar, $feature_fields);
-    $comment = "number of feature metadata fields: " . scalar keys %{$feature_metadata};
-    push @{$step_comments}, $comment;
-    print STDERR "$comment\n"; 
-    if ($feature_metadata and scalar keys %{$feature_metadata}) {
-        my %genome_ids = ();
-        for my $feature_id (keys %{$feature_metadata->{genome_id}}) {
-            if (exists $feature_metadata->{genome_id}{$feature_id}) {
-                my $genome_id = $feature_metadata->{genome_id}{$feature_id};
-                $genome_ids{$genome_id} = 1;
-            }
-        }
-        my @genome_ids = keys %genome_ids;
-        $comment = "genome ids: ". join(", ", @genome_ids);
-        push @{$step_comments}, $comment;
-        print STDERR "$comment\n"; 
-        $comment = "genome metadata fields: ". join(", ", @{$genome_fields});
-        push @{$step_comments}, $comment;
-        print STDERR "$comment\n"; 
-        print STDERR "before merging genome_metadata, feature_metadata keys = \n", join(", ", keys %$feature_metadata), "\n";
-        my @tmp = keys %$feature_metadata;
-        print STDERR "tmp[0] = $tmp[0]\n";
-        print STDERR "for $tmp[0]: ", join(", ", keys %{$feature_metadata->{$tmp[0]}}), "\n";
+sub select_sequence_identifier {
+    # fixed prioritization of elements to favor for best sequence identifier
+    my ($seq_data) = @_;
+    return $seq_data->{sequence_id} if exists $seq_data->{sequence_id};
+    return $seq_data->{altered_id} if exists $seq_data->{altered_id};
+    return $seq_data->{feature_id} if exists $seq_data->{feature_id};
+    return $seq_data->{patric_id} if exists $seq_data->{patric_id};
+    return $seq_data->{genome_id} if exists $seq_data->{genome_id};
+    return $seq_data->{user_identifier} if exists $seq_data->{user_identifier};
+    die "Couldn't find a usable sequence identifier for seq_data $seq_data";
+}
 
-        if (scalar @genome_ids) {
-            for my $genome_field (@$genome_fields) {
-                $feature_metadata->{$genome_field} = ();
-            }
-            my $genome_metadata = get_genome_metadata(\@genome_ids, $genome_fields);
-            for my $feature_id (keys %{$feature_metadata->{genome_id}}) {
-                my $genome_id = $feature_metadata->{genome_id}{$feature_id};
-                for my $genome_field (@$genome_fields) {
-                    my $value = $genome_metadata->{$genome_id}{$genome_field};
-                    $feature_metadata->{$genome_field}{$feature_id} = $value;
-                    print STDERR "gm $feature_id $genome_id $genome_field $value\n" if $debug;
+sub organize_metadata {
+    # go through the seq_list elements of each seq_set, gather values for appropriate fields
+    # return hashref where keys are column headers (field names) and values are hashes keyed by seq_id
+    # special element sequence_id is an array of sequence ids (same ids sent to tree building)
+    # gather genome metadata for any sets of type other than genome_group (which already has it)
+    my ($seq_sets, $feature_fields, $genome_fields) = @_; 
+    my ($step_comments, $step_info) = start_step("Organize Metadata");
+    my $comment = "feature metadata fields: ". join(", ", @{$feature_fields});
+    $comment .= "\ngenome metadata fields: ". join(", ", @{$genome_fields});
+    push @{$step_comments}, $comment;
+    print STDERR "$comment\n"; 
+    my $comment = "in organize_metadata\n";
+    print STDERR $comment;
+    my %seq_hash;
+    my %genome_ids; # for genome ids not part of a genome group (which already have their metadata)
+    for my $seq_set (@$seq_sets) {
+        for my $seq_item (@{$seq_set->{seq_list}}) {
+            my $seq_id = select_sequence_identifier($seq_item);
+            if (exists $seq_hash{$seq_id}) {
+                    print STDERR "got redundant seq_id: $seq_id\n";
+                    my $suffix = 2;
+                    my $modified_id = "${seq_id}_$suffix";
+                    while (exists $seq_hash{$modified_id}) {
+                        $suffix++;
+                        $modified_id = "${seq_id}_$suffix";
+                    }
+                    $seq_id = $modified_id;
+                }
+            $seq_item->{sequence_id} = $seq_id;
+            $seq_hash{$seq_id} = $seq_item;
+            $genome_ids{$seq_item->{genome_id}} = 1 if (exists $seq_item->{genome_id} and $seq_set->{type} ne 'genome_group');
+        }
+    }
+    if (scalar %genome_ids) {
+        my @genome_ids = keys %genome_ids;
+        my $genome_metadata = get_genome_metadata(\@genome_ids, $genome_fields);
+        for my $seq_set (@$seq_sets) {
+            for my $seq_item (@{$seq_set->{seq_list}}) {
+                my $genome_id = $seq_item->{genome_id};
+                if ($genome_id and exists $genome_metadata->{$genome_id}) {
+                    for my $field (@$genome_fields) {
+                        $seq_item->{$field} = $genome_metadata->{$genome_id}{$field} if exists $genome_metadata->{$genome_id}{$field};
+                    }
                 }
             }
         }
-        #my @fields = @{$feature_fields};
-        #for my $genome_field (@{$genome_fields}) {
-        #    push(@fields, $genome_field) unless grep(/^$genome_field\$/, @fields);
-        #}
     }
-    end_step("Gather Metadata");
-    return $feature_metadata;
+    my %metadata;
+    $metadata{sequence_id} = ();
+    my @all_fields;
+    push @all_fields, @$feature_fields;
+    push @all_fields, @$genome_fields;
+    for my $field (@all_fields) {
+        $metadata{$field} = ();
+    }
+    my $any_valid_metadata = 0;
+    for my $seq_set (@$seq_sets) {
+        for my $seq_item (@{$seq_set->{seq_list}}) {
+            my $sequence_id = $seq_item->{sequence_id};
+            $metadata{sequence_id}{$sequence_id} = $seq_item;
+            for my $field (@all_fields) {
+                if (exists $seq_item->{$field}) {
+                    $metadata{$field}{$sequence_id} = $seq_item->{$field};
+                    $any_valid_metadata = 1;
+                }
+            }
+        }
+    }
+    if ($debug) {
+        print STDERR "In organize_metadata: counts per field = :\n";
+        for my $field (@all_fields) {
+            print STDERR $field, "\t", scalar keys %{$metadata{$field}}, "\n";
+        }
+    }
+    my $retval = \%metadata;
+    unless ($any_valid_metadata) {
+        $retval = undef;
+        print STDERR "No valid metadata found.";
+    }
+    end_step("Organize Metadata");
+    return $retval;
 }
 
 sub trim_alignment {
-    my ($aligned_file, $trimmed_aligned_file, $trim_threshold, $gap_threshold) = @_;
+    my ($aligned_fasta_file, $trimmed_aligned_file, $trim_threshold, $gap_threshold) = @_;
     my ($trim_comments, $trim_info) = start_step("Trim Alignment");
     my $comment = "performing trimming on alignment: trim_threshod=$trim_threshold, gap_threhold=$gap_threshold";
     print STDERR "$comment\n";
     push @{$trim_comments}, $comment;
-    my $alignment = new Sequence_Alignment($aligned_file);
+    my $alignment = new Sequence_Alignment($aligned_fasta_file);
     print STDERR "trim_alignment: alignment=$alignment\n" if $debug;
     $trim_info->{details} = "Before trimming:\n" .  $alignment->write_stats();
     my $alignment_changed = 0;
@@ -1040,6 +962,16 @@ sub get_feature_metadata {
     return \%feature_metadata;
 }
 
+sub retrieve_feature_metadata_by_patric_id {
+    my ($patric_id, $feature_fields) = @_;
+    my $select_string = "select(" . join(",", @$feature_fields) . ")"; 
+    my $url = "$data_url/genome_feature/?eq(patric_id,($patric_id))&$select_string";
+    print STDERR "query=$url\n";
+    my $resp = curl_json($url);
+    print STDERR "response=$resp\n" if $debug;
+    return $resp->[0]; #only one element in return, which is a hash reference
+}
+
 sub get_genome_metadata {
     my ($genome_ids, $fields) = @_;
     print STDERR "in get_genome_metadata: genome ids = ", join(", ", @$genome_ids), "\n" if $debug;
@@ -1052,7 +984,7 @@ sub get_genome_metadata {
     my $resp = curl_json($url);
     my %genome_metadata = ();
     for my $member (@$resp) {
-        print STDERR "member: ", join(", ", sort(keys %$member)), "\n";
+        #print STDERR "member: ", join(", ", sort(keys %$member)), "\n";
         my $genome_id = $member->{genome_id};
         for my $field (@$fields) {
             $genome_metadata{$genome_id}{$field} = $member->{$field} unless $field eq 'genome_id';
@@ -1094,11 +1026,11 @@ sub label_tree_with_metadata {
 }
 
 sub generate_tree_graphic {
-    my ($input_newick, $num_tips) = @_;
+    my ($input_newick, $num_tips, $graphic_format) = @_;
     my ($step_comments, $step_info) = start_step("Generate Tree Graphic");
     my $file_base = basename($input_newick);
     $file_base =~ s/\..{2,6}//;
-    my $tree_graphic_file = "$file_base.svg";
+    my $tree_graphic_file = "$file_base." . lc($graphic_format);
     my $nexus_file = "$file_base.nex";
     my $comment = "run figtree input = $input_newick, output = $tree_graphic_file";
     #push @{$step_comments}, $comment;
@@ -1119,7 +1051,7 @@ sub generate_tree_graphic {
     print F "end;\n";
     close F;
 
-    my @cmd = ("figtree", "-graphic", 'SVG');
+    my @cmd = ("figtree", "-graphic", $graphic_format);
     
     if ($num_tips > 40) {
         my $height = 600 + 15 * ($num_tips - 40); # this is an empirical correction factor to avoid taxon name overlap
@@ -1134,7 +1066,7 @@ sub generate_tree_graphic {
     $step_info->{stdout} = $stdout;
     $step_info->{stderr} = $stderr;
     end_step("Generate Tree Graphic");
-    return [$tree_graphic_file, "svg"];
+    return $tree_graphic_file;
 }
 
 sub run_muscle {

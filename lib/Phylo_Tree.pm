@@ -79,8 +79,8 @@ sub get_input_newick {
 sub add_tip_phyloxml_properties {
     my ($self, $prop_hashref, $ref, $default_provenance) = @_;
     print STDERR "in:add_tip_phyloxml_properties($self, $prop_hashref, $ref, $default_provenance)\n" if $debug;
-    print STDERR "prop_hashref = %{$prop_hashref}\n" if $debug;
-    print STDERR "prop_hashref keys = ", join(" ", keys %$prop_hashref), "\n\n";
+    print STDERR "prop_hashref = %{$prop_hashref}\n" if $debug > 1;
+    print STDERR "prop_hashref keys = ", join(" ", keys %$prop_hashref), "\n\n" if $debug > 2;
     $default_provenance = "BVBRC" unless $default_provenance;
     my ($applies_to, $datatype) = ('node', 'xsd:string');
 
