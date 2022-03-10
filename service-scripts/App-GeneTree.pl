@@ -168,6 +168,8 @@ sub retrieve_sequence_data {
                     push @original_sequence_ids, $user_identifier;
                     my %seq_item_hash = ();
                     $seq_item = \%seq_item_hash;
+                    push @seq_list, $seq_item;
+                    $seq_item->{user_identifier} = $user_identifier;
                     $seq_item->{sequence} = '';
                     if ($user_identifier =~ /[[]():]/) {
                         $seq_item->{original_id} = $user_identifier;
@@ -175,14 +177,31 @@ sub retrieve_sequence_data {
                         print STDERR "replacing identifier $seq_item->{original_id} with $user_identifier\n";
                     }
                     $seq_item->{user_identifier} = $user_identifier;
-                    if ($user_identifier =~ /(fig\|\d+\.\d+\..{3}\.\d+)/) {
-                        my $patric_id = $1;
-                        $seq_item->{patric_id} = $patric_id;
-                        $seq_data{database_link} = 'patric_id';
-                        my $feature_metadata = retrieve_feature_metadata_by_patric_id($patric_id, $feature_metadata_fields);
-                        for my $field (@$feature_metadata_fields) {
-                            if (exists $feature_metadata->{$field}) {
-                                $seq_item->{$field} = $feature_metadata->{$field};
+                    if ($user_identifier =~ /^fig\|\d+\.\d+\..{3}\.\d+$/) {
+                        print "try user identifier as patric_id: $user_identifier\n" if $debug;
+                        my $feature_metadata = retrieve_feature_metadata_by_patric_id($api, $user_identifier, $feature_metadata_fields);
+                        if (scalar @$feature_metadata_fields) {
+                            for my $field (@$feature_metadata_fields) {
+                                if (exists $feature_metadata->{$field}) {
+                                    $seq_item->{$field} = $feature_metadata->{$field};
+                                    #print STDERR " fm: $field\t$seq_item->{$field}\n" if $debug;
+                                }
+                            $seq_item->{patric_id} = $user_identifier;
+                            $seq_data{database_link} = 'patric_id';
+                            }
+                        }
+                    }
+                    elsif ($user_identifier =~ /^\w+\.\d+\.\d+\.\w+\.\w+\.\d+\.\d+\.(fwd|rev)$/) {
+                        print "try user identifier as feature_id: $user_identifier\n" if $debug;
+                        my $feature_metadata = retrieve_feature_metadata_by_feature_id($api, $user_identifier, $feature_metadata_fields);
+                        if (scalar @$feature_metadata_fields) {
+                            for my $field (@$feature_metadata_fields) {
+                                if (exists $feature_metadata->{$field}) {
+                                    $seq_item->{$field} = $feature_metadata->{$field};
+                                    #print STDERR " fm: $field\t$seq_item->{$field}\n" if $debug;
+                                }
+                            $seq_item->{feature_id} = $user_identifier;
+                            $seq_data{database_link} = 'feature_id';
                             }
                         }
                     }
@@ -196,7 +215,6 @@ sub retrieve_sequence_data {
                     chomp;
                     $seq_item->{sequence} .= $_;
                 }
-                push @seq_list, $seq_item;
             }
             close F;
             $seq_data{seq_list} = \@seq_list;
@@ -299,23 +317,6 @@ sub retrieve_sequence_data {
                 print "for $genome_id: resp = $resp\tdata=$data\tdata->[0]=$data->[0]\n" if $debug;
                 $info->{sequence} = $data->[0]->{sequence};
             }
-            if (0) {
-                my $fasta_file = $sequence_item->{filename};
-                $fasta_file =~ s/.*\///; # remove everything upto and including last slash
-                $fasta_file =~ tr/ /_/;  # replace any blank spaces
-                $fasta_file .= ".fasta";
-                my $genome_seqs = $api->retrieve_contigs_in_genomes_to_temp($genome_ids);
-                #print STDERR "retrieve_contigs_in_genomes_to_temp returned $genome_seqs\n";
-                print STDERR "saving sequences to $fasta_file\n";
-                open OUT, ">$fasta_file";
-                open IN, $genome_seqs;
-                while (<IN>) {
-                    s/>accn\|(\d+\.\d+).con.*/>$1/; # replace definition line with simple genome_id
-                    print OUT $_;
-                }
-                unlink($genome_seqs);
-                close OUT;
-            }
             $seq_data{"name"}=$genome_group;
             $seq_data{"storage"}="seq_list"; # makes it easier to recognize which ones are already written to files
             $seq_data{"sequence_identifier_type"}="genome_id"; 
@@ -331,19 +332,18 @@ sub retrieve_sequence_data {
             $comment = "retrieving sequences for feature ids";
             $comment .= ", this functionality in testing";
             push @{$step_comments}, $comment;
-            my $feature_ids = $sequence_item->{sequences};
+            my $feature_ids = $sequence_item->{feature_ids};
             print STDERR "\tfeature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
-            my $query="in(feature_id," . join(',', @$feature_ids) . ")";
-            my ($resp, $seq_list) = $api->submit_query('genome_feature', $query, "patric_id,plfam_id,sequence");
-            my @md5s;
-            my $seq_type = ('aa_sequence_md5', 'na_sequence_md5')[$params->{alphabet} eq 'DNA'];
+            my $query="in(feature_id,(" . join(',', @$feature_ids) . "))";
+            my ($req, $seq_list) = $api->submit_query('genome_feature', $query);
+            my @md5_list;
+            my $md5_type = ('aa_sequence_md5', 'na_sequence_md5')[$params->{alphabet} eq 'DNA'];
             for my $item  (@$seq_list) {
-                push @md5s, $item->{$seq_type};
+                push @md5_list, $item->{$md5_type};
             }
-            my $seqs = $api->lookup_sequence_data_hash(\@md5s);
-            
+            my $seqs = $api->lookup_sequence_data_hash(\@md5_list);
             for my $item  (@$seq_list) {
-                $item->{sequence} = $seqs->{$item->{$seq_type}};
+                $item->{sequence} = $seqs->{$item->{$md5_type}};
             }
             $num_seqs = scalar keys %{$sequence_item->{sequences}};
             $seq_data{"num_seqs"}=$num_seqs;
@@ -519,7 +519,7 @@ sub build_tree {
                 push @header_fields, $field;
                 $tree->add_tip_phyloxml_properties($metadata->{$field}, $field, "BVBRC");
             }
-            print F join("\t", "SeqId", @header_fields) . "\n";
+            print F join("\t", "SeqId", @header_fields);
             my @seqid_list = sort keys %{$metadata->{sequence_id}};
             if ($debug) {
                 print STDERR "seqid_list: ", join(' ', @seqid_list), "\n";
@@ -528,13 +528,12 @@ sub build_tree {
                 }
             }
             for my $id (@seqid_list) {
-                print F $id;
+                print F "\n$id";
                 for my $field (@header_fields) {
                     my $val = "";
                     $val = $metadata->{$field}{$id} if exists $metadata->{$field}{$id};
                     print F "\t$val";
                 }
-                print F "\n";
             }
             close F;
             push @outputs, [$metadata_file, "tsv"];
@@ -623,11 +622,12 @@ sub organize_metadata {
     $comment .= "\ngenome metadata fields: ". join(", ", @{$genome_fields});
     push @{$step_comments}, $comment;
     print STDERR "$comment\n"; 
-    my $comment = "in organize_metadata\n";
+    my $comment = "in organize_metadata, number of sequence sets is " . scalar @$seq_sets . "\n";
     print STDERR $comment;
     my %seq_hash;
     my %genome_ids; # for genome ids not part of a genome group (which already have their metadata)
     for my $seq_set (@$seq_sets) {
+        print STDERR "seq set: $seq_set->{name}, num seqs: ", scalar @{$seq_set->{seq_list}}, "\n" if $debug;
         for my $seq_item (@{$seq_set->{seq_list}}) {
             my $seq_id = select_sequence_identifier($seq_item);
             if (exists $seq_hash{$seq_id}) {
@@ -686,13 +686,8 @@ sub organize_metadata {
             print STDERR $field, "\t", scalar keys %{$metadata{$field}}, "\n";
         }
     }
-    my $retval = \%metadata;
-    unless ($any_valid_metadata) {
-        $retval = undef;
-        print STDERR "No valid metadata found.";
-    }
     end_step("Organize Metadata");
-    return $retval;
+    return \%metadata;
 }
 
 sub trim_alignment {
@@ -836,6 +831,9 @@ sub run_phyml {
     push @cmd, ("-i", $alignment_file);
     push @cmd, ("-d", $datatype);
     push @cmd, ("-m", $model);
+    push @cmd, ("-b", '-3'); # -1 gives approximate Likelihood Ratio Tests
+    # -2 give Chi2-based parametric branch supports
+    # -3 gives Shimodaira-Hasegawa (SH) support values
     
     my $comment = "command = ". join(" ", @cmd);
     push @{$step_comments}, $comment;
@@ -903,73 +901,30 @@ sub run_fasttree {
     return @outputs;
 }
 
-sub get_feature_metadata {
-    # add/supplement any data in feature_metadata hashref from patric feature id to hash of field values
-    my ($seq_items, $seqid_ar, $altered_names_hr, $feature_fields) = @_;
-    $feature_fields = ['genome_id','product'] unless $feature_fields;
-    my %feature_metadata;
-    for my $field (@$feature_fields) {
-        $feature_metadata{$field} = (); # column major order
-    }
-    my %seqs_with_data;
-    for my $seq_set (@$seq_items) {
-        if ($seq_set->{type} eq 'feature_group') {
-            for my $feature_data (@{$seq_set->{seq_list}}) {
-                my $seq_id = $feature_data->{patric_id};
-                next unless $seq_id;
-                for my $field (@$feature_fields) { # get just specified feature fields
-                    $feature_metadata{$field}{$seq_id} = $feature_data->{$field} if exists $feature_data->{$field};
-                }
-                $seqs_with_data{$seq_id} = 1;
-            }
-        }
-    }
-
-    my @seqs_needing_data;
-    my %alt_name_rev;
-    for my $seq_id (@$seqid_ar) {
-        next if exists $seqs_with_data{$seq_id};
-        if (exists $altered_names_hr->{$seq_id}) {
-            my $alt_id = $altered_names_hr->{$seq_id}; 
-            $alt_name_rev{$alt_id} = $seq_id;
-            $seq_id = $alt_id;
-        }
-        push @seqs_needing_data, $seq_id;
-    }
-    if (scalar @seqs_needing_data) {
-        my $select_string = "select(" . join(",", @$feature_fields) . ")"; 
-        my $escaped_ids = join(",", map { uri_escape $_ } @seqs_needing_data);
-        my $url = "$data_url/genome_feature/?in(patric_id,($escaped_ids))&$select_string";
-        print STDERR "query=$url\n";
-        my $resp = curl_json($url);
-        print STDERR "response=$resp\n";
-        if ( $resp =~ /Error/) {
-            warn "Problem! query did not return properly: $url\n";
-            return undef;
-        }
-        print STDERR "length of resp = ", scalar(@$resp), "\n";
-        #***** need to fix this part
-        for my $member (@$resp) {
-            #my $feature_id = $member->{patric_id};
-            #$feature_metadata{$feature_id} = $member;
-            print STDERR " next member = $member\n";
-            my $seq_id = $member->{patric_id};
-            for my $field (@$feature_fields) {
-                $feature_metadata{$field}{$seq_id} = $member->{$field}
-            }
-        }
-    }
-    return \%feature_metadata;
+sub retrieve_feature_metadata_by_patric_id {
+    my ($api, $patric_id, $feature_fields) = @_;
+    my $select_string = "select(" . join(",", @$feature_fields) . ")"; 
+    #my $url = "$data_url/genome_feature/?eq(patric_id,($patric_id))&$select_string";
+    #print STDERR "query=$url\n";
+    #my $resp = curl_json($url);
+    $patric_id = uri_escape($patric_id);
+    my $query = "eq(patric_id,$patric_id)&$select_string";
+    my ($resp, $data) = $api->submit_query('genome_feature', $query);
+    #print STDERR "response=$resp\n" if $debug;
+    return $data->[0]; #only one element in return, which is a hash reference
 }
 
-sub retrieve_feature_metadata_by_patric_id {
-    my ($patric_id, $feature_fields) = @_;
+sub retrieve_feature_metadata_by_feature_id {
+    my ($api, $feature_id, $feature_fields) = @_;
     my $select_string = "select(" . join(",", @$feature_fields) . ")"; 
-    my $url = "$data_url/genome_feature/?eq(patric_id,($patric_id))&$select_string";
-    print STDERR "query=$url\n";
-    my $resp = curl_json($url);
-    print STDERR "response=$resp\n" if $debug;
-    return $resp->[0]; #only one element in return, which is a hash reference
+    #my $url = "$data_url/genome_feature/?eq(feature_id,($feature_id))&$select_string";
+    #print STDERR "query=$url\n";
+    #my $resp = curl_json($url);
+    $feature_id = uri_escape($feature_id);
+    my $query = "eq(feature_id,$feature_id)&$select_string";
+    my ($resp, $data) = $api->submit_query('genome_feature', $query);
+    #print STDERR "response=$resp\n" if $debug;
+    return $data->[0]; #only one element in return, which is a hash reference
 }
 
 sub get_genome_metadata {
