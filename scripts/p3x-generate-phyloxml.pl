@@ -76,7 +76,8 @@ if ($debug) {
     print STDERR "args = ", join("\n", @ARGV), "\n";
 }
 
-my $tree = new Phylo_Tree($newickFile);
+my $link = $opt->databaselink;
+my $tree = new Phylo_Tree($newickFile, $link);
 #print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n" if $debug;
 
 my %meta_column; #first key is column (field name), second key is row (tip ID)
@@ -109,7 +110,6 @@ if ($opt->annotationtsv) {
 }
 
 if ($opt->databaselink) {
-    my $link = $opt->databaselink;
     # Get access to PATRIC.
     my $api = P3DataAPI->new();
     my $treeIds = $tree->get_tip_ids();
