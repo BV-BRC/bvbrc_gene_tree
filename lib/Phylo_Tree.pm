@@ -38,15 +38,20 @@ sub register_tip {
     $self->{_tips}{$name} = $node;
 }
 
-sub list_tips {
+sub get_tip_identifiers {
     my $self = shift;
-    my $retval = "Number of tips = " . scalar keys %{$self->{_tips}};
-    $retval .= "\n";
+    my @ids = keys %{$self->{_tips}};
+    return \@ids
+}
+
+sub get_tip_ids {
+    my $self = shift;
+    my @retval;
     for my $name (keys %{$self->{_tips}}) {
         my $node = $self->{_tips}{$name};
-        $retval .= "$name\t$node->{_level}\n";
+        push @retval, $name;
     }
-    $retval;
+    return \@retval;
 }
 
 sub read_newick {

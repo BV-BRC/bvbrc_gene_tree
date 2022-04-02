@@ -904,9 +904,6 @@ sub run_fasttree {
 sub retrieve_feature_metadata_by_patric_id {
     my ($api, $patric_id, $feature_fields) = @_;
     my $select_string = "select(" . join(",", @$feature_fields) . ")"; 
-    #my $url = "$data_url/genome_feature/?eq(patric_id,($patric_id))&$select_string";
-    #print STDERR "query=$url\n";
-    #my $resp = curl_json($url);
     $patric_id = uri_escape($patric_id);
     my $query = "eq(patric_id,$patric_id)&$select_string";
     my ($resp, $data) = $api->submit_query('genome_feature', $query);
