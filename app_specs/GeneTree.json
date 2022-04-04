@@ -11,7 +11,7 @@
             "required": 1,
             "allow_multiple": 1,
             "filename": "string",
-            "type": ["aligned_dna_fasta", "aligned_protein_fasta", "feature_dna_fasta", "feature_protein_fasta", "feature_group", "genome_group"]
+            "type": ["aligned_dna_fasta", "aligned_protein_fasta", "feature_dna_fasta", "feature_protein_fasta", "feature_group", "genome_group", "feature_ids"]
         },
         {
             "id": "trim_threshold",

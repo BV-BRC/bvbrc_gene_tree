@@ -150,7 +150,7 @@ sub add_phyloxml_property {
     $self->{_properties}{$ref} = $val;
     $self->{_property_applies_to}{$ref} = $applies_to;
     $self->{_property_datatype}{$ref} = $data_type;
-    print STDERR "Phylo_Node:add_phyloxml_property just added key=$ref, val=$self->{_properties}{$ref}\n" if $debug > 0;
+    print STDERR "Phylo_Node:add_phyloxml_property just added key=$ref, val=$self->{_properties}{$ref}\n" if $debug > 2;
 }
 
 sub write_phyloXML {

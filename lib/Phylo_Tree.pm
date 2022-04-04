@@ -7,7 +7,7 @@ sub set_debug { $debug = shift;
     Phylo_Node::set_debug($debug)}
 
 sub new {
-    my ($class, $newick, $support_type) = @_;
+    my ($class, $newick, $type, $support_type) = @_;
     if ($debug) {
         print(STDERR "in Phylo_Tree constructor\n");
         print(STDERR " class = $class\n");
@@ -19,6 +19,7 @@ sub new {
     $self->{_root} = {};
     $self->{_annot} = {};
     $self->{_tips} = {};
+    $self->{_type} = $type if $type;
     $self->{_support_type} = {$support_type} if $support_type;
     $self->{'_property_datatype'} = {};
     $self->{'_property_applies_to'} = {};
@@ -37,15 +38,20 @@ sub register_tip {
     $self->{_tips}{$name} = $node;
 }
 
-sub list_tips {
+sub get_tip_identifiers {
     my $self = shift;
-    my $retval = "Number of tips = " . scalar keys %{$self->{_tips}};
-    $retval .= "\n";
+    my @ids = keys %{$self->{_tips}};
+    return \@ids
+}
+
+sub get_tip_ids {
+    my $self = shift;
+    my @retval;
     for my $name (keys %{$self->{_tips}}) {
         my $node = $self->{_tips}{$name};
-        $retval .= "$name\t$node->{_level}\n";
+        push @retval, $name;
     }
-    $retval;
+    return \@retval;
 }
 
 sub read_newick {
@@ -78,8 +84,8 @@ sub get_input_newick {
 sub add_tip_phyloxml_properties {
     my ($self, $prop_hashref, $ref, $default_provenance) = @_;
     print STDERR "in:add_tip_phyloxml_properties($self, $prop_hashref, $ref, $default_provenance)\n" if $debug;
-    print STDERR "prop_hashref = %{$prop_hashref}\n" if $debug;
-    print STDERR "prop_hashref keys = ", join(" ", keys %$prop_hashref), "\n\n";
+    print STDERR "prop_hashref = %{$prop_hashref}\n" if $debug > 1;
+    print STDERR "prop_hashref keys = ", join(" ", keys %$prop_hashref), "\n\n" if $debug > 2;
     $default_provenance = "BVBRC" unless $default_provenance;
     my ($applies_to, $datatype) = ('node', 'xsd:string');
 
@@ -105,8 +111,10 @@ sub write_phyloXML {
     my $retval = "";
     $retval .= '<?xml version="1.0" encoding="UTF-8"?>
 <phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.20/phyloxml.xsd" xmlns="http://www.phyloxml.org">
- <phylogeny rooted="true" rerootable="true">
-';
+ <phylogeny rooted="true" rerootable="true"';
+    $retval .= " type=\"$self->{_type}\"" if $self->{_type};
+    $retval .= " support_type=\"$self->{_support_type}\"" if $self->{_support_type};
+    $retval .= ">\n";
     $retval .= $self->{_root}->write_phyloXML(' ');  # recursively write root and all descendants
     $retval .= " </phylogeny>\n</phyloxml>\n";
 }
