@@ -159,7 +159,7 @@ sub run_raxml {
     system("cat RAxML_info.${output_name}_rell >> $logFile");
     # delete other unwanted files unless $debug
     system("rm RAxML*$output_name") unless $debug;
-    system("rm $alignment_file.reduced") if -e "$alignment_file.reduced" and !$debug;
+    unlink("$alignment_file.reduced") if -e "$alignment_file.reduced" and !$debug;
     return ($treeFile, $logFile);
 }
 
@@ -201,7 +201,7 @@ sub run_phyml {
     my $logFile = $output_name."_phyml_log.txt";
     move($phylip_file."_phyml_stats.txt", $logFile);
     #remove unwanted files unless $debug
-    system("rm $phylip_file") unless $debug;
+    unlink("$phylip_file") unless $debug;
     return ($treeFile, $logFile);
 }
 
