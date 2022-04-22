@@ -76,6 +76,41 @@ if ($debug) {
     print STDERR "args = ", join("\n", @ARGV), "\n";
 }
 
+my $workspace_dir;
+my @fields = split("/", $newickFile);
+if (scalar @fields > 2 and $fields[1] =~ '@') {
+    print STDERR "looking for $newickFile in user workspace\n" if $opt->verbose;
+    # probably a user workspace path
+    my ($user, $brc) = split('@', $fields[1]);
+    if ($brc and $brc =~ /patricbrc\.org|bvbrc/) {
+        my $workspace_newick = $newickFile;
+        $newickFile = pop @fields; # grab the last '/'-delimited field in user workspace path
+        $workspace_dir = join('/', @fields);
+        print STDERR "Parsed user=$user, brc=$brc, file=$newickFile\n" if $debug;
+        my $ls_result = `p3-ls '$workspace_newick'`;
+        chomp $ls_result;
+        if ($ls_result ne $workspace_newick) {
+            print "'$workspace_newick'\n'$ls_result'\n" if $opt->verbose;
+            print "Cannot access $workspace_newick\nPerhaps not logged in as user $user\n";
+            exit(1);
+        }
+        if (-f $newickFile) {
+            print "Refusing to overwrite local file $newickFile, exiting.\n";
+            exit(1);
+        }
+        print STDERR "p3-cp ws:'$workspace_newick' ." if $opt->verbose;
+        system("p3-cp ws:'$workspace_newick' .");
+        unless (-f $newickFile) {
+            print "Failed to copy $workspace_newick to local file system.";
+            exit(1);
+        }
+    }
+}
+unless (-f $newickFile) {
+    print "Cannot find file $newickFile.";
+    exit(1);
+}
+
 my $link = $opt->databaselink;
 my $tree = new Phylo_Tree($newickFile, $link);
 #print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n" if $debug;
@@ -138,19 +173,21 @@ if ($opt->databaselink) {
             }
         }
         if (exists $meta_column{'genome_id'}) {
-            my $unique_genomes = join(",", sort keys %genome_to_links);
-            $query = "in(genome_id,($unique_genomes))";
             my $genomeFields = $opt->genomefields();
-            $select = "select($genomeFields,genome_id)";
-            print STDERR "query db for genome fields:\n$query\n$select\n" if $debug;
-            my ($resp, $data) = $api->submit_query('genome', "$query&$select");
-            for my $record (@$data) {
-                #print join("||", keys %$record), "\n" if $debug;
-                my $genome_id = $record->{genome_id};
-                for my $key (keys %$record) {
-                    if ($genomeFields =~ /$key/) {
-                        for my $tree_id (@{$genome_to_links{$genome_id}}) {
-                            $meta_column{$key}{$tree_id} = $record->{$key};
+            if ($genomeFields) {
+                my $unique_genomes = join(",", sort keys %genome_to_links);
+                $query = "in(genome_id,($unique_genomes))";
+                $select = "select($genomeFields,genome_id)";
+                print STDERR "query db for genome fields:\n$query\n$select\n" if $debug;
+                my ($resp, $data) = $api->submit_query('genome', "$query&$select");
+                for my $record (@$data) {
+                    #print join("||", keys %$record), "\n" if $debug;
+                    my $genome_id = $record->{genome_id};
+                    for my $key (keys %$record) {
+                        if ($genomeFields =~ /$key/) {
+                            for my $tree_id (@{$genome_to_links{$genome_id}}) {
+                                $meta_column{$key}{$tree_id} = $record->{$key};
+                            }
                         }
                     }
                 }
@@ -189,3 +226,8 @@ open F, ">$phyloxml_file";
 my $phyloxml_data = $tree->write_phyloXML();
 print F $phyloxml_data;
 close F;
+
+if ($workspace_dir) {
+    # copy phyoxml file to user's workspace
+    system("p3-cp $phyloxml_file ws:'$workspace_dir'");
+}

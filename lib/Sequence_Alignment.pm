@@ -131,9 +131,20 @@ sub read_file {
     }
     elsif ($format eq 'fasta') {
         my $id;
+        my $first_seq_len;
         while (<$fh>) {
             chomp;
             if (/^>(\S+)/) {
+                if ($id) {
+                    my $cur_len = length($self->{_seqs}{$id});
+                    if ($first_seq_len) {
+                        print STDERR "$id length $cur_len\n" if $cur_len != $first_seq_len;
+                    }
+                    else { 
+                        print "first sequence $id has length $cur_len\n" if $debug; 
+                        $first_seq_len = $cur_len;
+                    }
+                }
                 $id = $1;
                 my $temp = $id;
                 my $suffix = 1;
@@ -149,7 +160,8 @@ sub read_file {
                 $self->{_seqs}{$id} = '';
             }
             else  {
-                $_ =~ tr/\\s//d;
+                my $x = $_ =~ tr/ //d;
+                if ($x) { print STDERR "x = $x\n"}
                 $self->{_seqs}{$id} .= $_;
             }
         }
@@ -187,6 +199,7 @@ sub read_file {
     for my $id (@{$self->{_ids}}) {
         if (length($self->{_seqs}{$id}) != $self->{_length}) {
             $self->{_is_aligned} = 0;
+            print STDERR "found seq of different length: ", length($self->{_seqs}{$id}), " $id\n" if $debug;
             $self->{_length} = max($self->{_length}, length($self->{_seqs}{$id}))
         }
         #print STDERR "id $id ; len ", length($self->{_seqs}{$id}), " ; is_al=$self->{_is_aligned} \n";
