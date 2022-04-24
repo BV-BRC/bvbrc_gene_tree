@@ -118,7 +118,7 @@ my $tree = new Phylo_Tree($newickFile, $link);
 my %meta_column; #first key is column (field name), second key is row (tip ID)
 if ($opt->annotationtsv) {
     my $metadata_file = $opt->annotationtsv;
-    print STDERR "readiing metadata from $metadata_file\n" if $debug;
+    print STDERR "reading metadata from $metadata_file\n" if $debug;
     open F, $metadata_file;
     $_ = <F>;
     chomp;
@@ -148,6 +148,8 @@ if ($opt->databaselink) {
     # Get access to PATRIC.
     my $api = P3DataAPI->new();
     my $treeIds = $tree->get_tip_ids();
+    my $num_tips = scalar @$treeIds;
+    my $limit = "limit($num_tips)";
     print STDERR "tree IDs are: ", join(", ", @$treeIds), "\n" if $debug;
     my @escaped_IDs = map { uri_escape $_ } @$treeIds;
     my $query = "in($link,(" . join(",",@escaped_IDs). "))";
@@ -158,7 +160,7 @@ if ($opt->databaselink) {
         my $select = "select($featureFields,$link)"; 
         print STDERR "select=$select\n" if $debug;
         my %genome_to_links;
-        my ($resp, $data) = $api->submit_query('genome_feature', "$query&$select");
+        my ($resp, $data) = $api->submit_query('genome_feature', "$query&$select&$limit");
         for my $record (@$data) {
             #print join("||", keys %$record), "\n" if $debug;
             my $id = $record->{$link};
@@ -179,9 +181,9 @@ if ($opt->databaselink) {
                 $query = "in(genome_id,($unique_genomes))";
                 $select = "select($genomeFields,genome_id)";
                 print STDERR "query db for genome fields:\n$query\n$select\n" if $debug;
-                my ($resp, $data) = $api->submit_query('genome', "$query&$select");
+                my ($resp, $data) = $api->submit_query('genome', "$query&$select&$limit");
                 for my $record (@$data) {
-                    #print join("||", keys %$record), "\n" if $debug;
+                    print join("||", keys %$record), "\n" if $debug;
                     my $genome_id = $record->{genome_id};
                     for my $key (keys %$record) {
                         if ($genomeFields =~ /$key/) {
@@ -197,9 +199,13 @@ if ($opt->databaselink) {
     elsif ($link eq 'genome_id' and $opt->genomefields) { # get genome annotation
         my $fields = $opt->genomefields();
         my $select = "select($fields,genome_id)";
-        my ($resp, $data) = $api->submit_query('genome', "$query&$select");
+        if ($opt->verbose) {
+            print STDERR "query = $query&$select&$limit\n\n";
+        }
+        my ($resp, $data) = $api->submit_query('genome', "$query&$select&$limit");
+        print STDERR "data retrieved = $data\n" if $opt->verbose();
         for my $record (@$data) {
-            #print join("||", keys %$record), "\n" if $debug;
+            print join("||", keys %$record)."\n" if $opt->verbose();
             my $id = $record->{genome_id};
             for my $key (keys %$record) {
                 if ($fields =~ /$key/) {
@@ -229,5 +235,5 @@ close F;
 
 if ($workspace_dir) {
     # copy phyoxml file to user's workspace
-    system("p3-cp $phyloxml_file ws:'$workspace_dir'");
+    system("p3-cp -m xml=phyloxml $phyloxml_file ws:'$workspace_dir'");
 }
