@@ -76,6 +76,41 @@ if ($debug) {
     print STDERR "args = ", join("\n", @ARGV), "\n";
 }
 
+my $workspace_dir;
+my @fields = split("/", $newickFile);
+if (scalar @fields > 2 and $fields[1] =~ '@') {
+    print STDERR "looking for $newickFile in user workspace\n" if $opt->verbose;
+    # probably a user workspace path
+    my ($user, $brc) = split('@', $fields[1]);
+    if ($brc and $brc =~ /patricbrc\.org|bvbrc/) {
+        my $workspace_newick = $newickFile;
+        $newickFile = pop @fields; # grab the last '/'-delimited field in user workspace path
+        $workspace_dir = join('/', @fields);
+        print STDERR "Parsed user=$user, brc=$brc, file=$newickFile\n" if $debug;
+        my $ls_result = `p3-ls '$workspace_newick'`;
+        chomp $ls_result;
+        if ($ls_result ne $workspace_newick) {
+            print "'$workspace_newick'\n'$ls_result'\n" if $opt->verbose;
+            print "Cannot access $workspace_newick\nPerhaps not logged in as user $user\n";
+            exit(1);
+        }
+        if (-f $newickFile) {
+            print "Refusing to overwrite local file $newickFile, exiting.\n";
+            exit(1);
+        }
+        print STDERR "p3-cp ws:'$workspace_newick' ." if $opt->verbose;
+        system("p3-cp ws:'$workspace_newick' .");
+        unless (-f $newickFile) {
+            print "Failed to copy $workspace_newick to local file system.";
+            exit(1);
+        }
+    }
+}
+unless (-f $newickFile) {
+    print "Cannot find file $newickFile.";
+    exit(1);
+}
+
 my $link = $opt->databaselink;
 my $tree = new Phylo_Tree($newickFile, $link);
 #print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n" if $debug;
@@ -83,7 +118,7 @@ my $tree = new Phylo_Tree($newickFile, $link);
 my %meta_column; #first key is column (field name), second key is row (tip ID)
 if ($opt->annotationtsv) {
     my $metadata_file = $opt->annotationtsv;
-    print STDERR "readiing metadata from $metadata_file\n" if $debug;
+    print STDERR "reading metadata from $metadata_file\n" if $debug;
     open F, $metadata_file;
     $_ = <F>;
     chomp;
@@ -113,6 +148,8 @@ if ($opt->databaselink) {
     # Get access to PATRIC.
     my $api = P3DataAPI->new();
     my $treeIds = $tree->get_tip_ids();
+    my $num_tips = scalar @$treeIds;
+    my $limit = "limit($num_tips)";
     print STDERR "tree IDs are: ", join(", ", @$treeIds), "\n" if $debug;
     my @escaped_IDs = map { uri_escape $_ } @$treeIds;
     my $query = "in($link,(" . join(",",@escaped_IDs). "))";
@@ -123,7 +160,7 @@ if ($opt->databaselink) {
         my $select = "select($featureFields,$link)"; 
         print STDERR "select=$select\n" if $debug;
         my %genome_to_links;
-        my ($resp, $data) = $api->submit_query('genome_feature', "$query&$select");
+        my ($resp, $data) = $api->submit_query('genome_feature', "$query&$select&$limit");
         for my $record (@$data) {
             #print join("||", keys %$record), "\n" if $debug;
             my $id = $record->{$link};
@@ -138,19 +175,21 @@ if ($opt->databaselink) {
             }
         }
         if (exists $meta_column{'genome_id'}) {
-            my $unique_genomes = join(",", sort keys %genome_to_links);
-            $query = "in(genome_id,($unique_genomes))";
             my $genomeFields = $opt->genomefields();
-            $select = "select($genomeFields,genome_id)";
-            print STDERR "query db for genome fields:\n$query\n$select\n" if $debug;
-            my ($resp, $data) = $api->submit_query('genome', "$query&$select");
-            for my $record (@$data) {
-                #print join("||", keys %$record), "\n" if $debug;
-                my $genome_id = $record->{genome_id};
-                for my $key (keys %$record) {
-                    if ($genomeFields =~ /$key/) {
-                        for my $tree_id (@{$genome_to_links{$genome_id}}) {
-                            $meta_column{$key}{$tree_id} = $record->{$key};
+            if ($genomeFields) {
+                my $unique_genomes = join(",", sort keys %genome_to_links);
+                $query = "in(genome_id,($unique_genomes))";
+                $select = "select($genomeFields,genome_id)";
+                print STDERR "query db for genome fields:\n$query\n$select\n" if $debug;
+                my ($resp, $data) = $api->submit_query('genome', "$query&$select&$limit");
+                for my $record (@$data) {
+                    print join("||", keys %$record), "\n" if $debug;
+                    my $genome_id = $record->{genome_id};
+                    for my $key (keys %$record) {
+                        if ($genomeFields =~ /$key/) {
+                            for my $tree_id (@{$genome_to_links{$genome_id}}) {
+                                $meta_column{$key}{$tree_id} = $record->{$key};
+                            }
                         }
                     }
                 }
@@ -160,9 +199,13 @@ if ($opt->databaselink) {
     elsif ($link eq 'genome_id' and $opt->genomefields) { # get genome annotation
         my $fields = $opt->genomefields();
         my $select = "select($fields,genome_id)";
-        my ($resp, $data) = $api->submit_query('genome', "$query&$select");
+        if ($opt->verbose) {
+            print STDERR "query = $query&$select&$limit\n\n";
+        }
+        my ($resp, $data) = $api->submit_query('genome', "$query&$select&$limit");
+        print STDERR "data retrieved = $data\n" if $opt->verbose();
         for my $record (@$data) {
-            #print join("||", keys %$record), "\n" if $debug;
+            print join("||", keys %$record)."\n" if $opt->verbose();
             my $id = $record->{genome_id};
             for my $key (keys %$record) {
                 if ($fields =~ /$key/) {
@@ -189,3 +232,8 @@ open F, ">$phyloxml_file";
 my $phyloxml_data = $tree->write_phyloXML();
 print F $phyloxml_data;
 close F;
+
+if ($workspace_dir) {
+    # copy phyoxml file to user's workspace
+    system("p3-cp -m xml=phyloxml $phyloxml_file ws:'$workspace_dir'");
+}
