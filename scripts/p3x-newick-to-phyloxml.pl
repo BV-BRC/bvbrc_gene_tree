@@ -15,23 +15,23 @@ The command-line options are as follows.
 
 =over 4
 
-=item annotationTsv
+=item annotationtsv
 
 A tab-delimited file where the first column contains the tip IDs on the tree.
 The column headings are the names of the fields.
 The values are annotations for each field (column) for each tip (row).
 An optional second header row with the first field 'provenance' will be used to prefix the phy:Property fields in the PhyloXML structure (othersize the value of annotationProvenance is used).
 
-=item databaseLink 
+=item databaselink 
 
 Identifies how the tree tip identifiers are to be interpreted when linking to the BVBRC database.
 Options are 'patric_id', 'genome_id', 'feature_id'.
 
-=item featureFields
+=item featurefields
 
 Comma separated list of feature-level fields requested for annotating tips.
 
-=item genomeFields
+=item genomefields
 
 Comma separated list of genome-level fields requested for annotating tips.
 
@@ -51,9 +51,10 @@ my $opt = P3Utils::script_opts('newickFile',
                 ['annotationtsv|a=s', 'Name of a TSV file containing annotation for tips on the tree'],
                 ['databaselink|link|l=s', 'Name of database field that tree identifiers map to (feature_id, genome_id, patric_id).'],
                 ['provenance|p=s', 'Provenance of annotation. (default: BVBRC)', { default => 'BVBRC' }],
-                ['featurefields|f=s', 'Comma-separated list of feature-level fields to annotate each tree tip.'],
-                ['genomefields|g=s', 'Comma-separated list of genome-level fields to annotate each tree tip.'],
-                ['verbose|debug|v', 'Write status messages to STDERR'],
+                ['featurefields|f=s', 'Comma-separated list of feature fields to annotate each tree tip.', {default => 'product,accession'}],
+                ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'species,strain,geographic_group,isolation_country,host_group,host_common_name,collection_year,genus,mlst'}],
+                ['overwrite|o', 'Overwrite existing files if any.'],
+                ['verbose|debug|v', 'Write status messages to STDERR.'],
         );
 # Check the parameters.
 my $newickFile = $ARGV[0];
@@ -94,12 +95,15 @@ if (scalar @fields > 2 and $fields[1] =~ '@') {
             print "Cannot access $workspace_newick\nPerhaps not logged in as user $user\n";
             exit(1);
         }
-        if (-f $newickFile) {
-            print "Refusing to overwrite local file $newickFile, exiting.\n";
+        if (-f $newickFile and not $opt->overwrite) {
+            print "Refusing to overwrite local file $newickFile. Use --overwrite (or -f) to enable overwrite.\n";
             exit(1);
         }
-        print STDERR "p3-cp ws:'$workspace_newick' ." if $opt->verbose;
-        system("p3-cp ws:'$workspace_newick' .");
+        my $command = 'p3-cp';
+        $command .= ' -f' if $opt->overwrite;
+        $command .= " ws:'$workspace_newick' .";
+        print STDERR "commnd to copy from workspace:\n$command\n" if $opt->verbose;
+        system($command);
         unless (-f $newickFile) {
             print "Failed to copy $workspace_newick to local file system.";
             exit(1);
@@ -235,5 +239,9 @@ close F;
 
 if ($workspace_dir) {
     # copy phyoxml file to user's workspace
-    system("p3-cp -m xml=phyloxml $phyloxml_file ws:'$workspace_dir'");
+    my $command = "p3-cp -m xml=phyloxml";
+    $command .= " -f" if $opt->overwrite;
+    $command .= " $phyloxml_file ws:'$workspace_dir'";
+    print STDERR "commnd to copy back to workspace:\n$command\n" if $opt->verbose;
+    system($command);
 }
