@@ -16,6 +16,7 @@ use Cwd;
 use URI::Escape;
 use Sequence_Alignment; # should be in lib directory
 use Phylo_Tree; # should be in lib directory
+use Tree_Builder;
 
 our $global_ws;
 our $global_token;
@@ -32,6 +33,8 @@ if ($debug) {
     print STDERR "debug = $debug\n" if $debug;
     Phylo_Tree::set_debug($debug); 
     Phylo_Node::set_debug($debug); 
+    Tree_Builder::set_debug($debug);
+    Sequence_Alignment::set_debug($debug);
     print STDERR "args = ", join("\n", @ARGV), "\n";
 }
 our @analysis_step => ();# collect info on sequence of analysis steps
@@ -74,6 +77,12 @@ sub start_step {
     push @step_stack, $name;
     return \@{$step_info{comments}}, \%step_info
 }
+sub add_step_command_line {
+    my $cmd = shift;
+    my $last_index = $#analysis_step;
+    my $step_info = $analysis_step[$last_index];
+    $step_info->{command_line} = $cmd;
+}
 
 sub end_step {
     my $name = shift;
@@ -85,6 +94,11 @@ sub end_step {
     my $step_index = scalar @analysis_step - 1;
     my $step_info = $analysis_step[$step_index];
     $step_info->{end_time} = time();
+}
+
+sub add_analysis_step { #allow adding a step recorded by Tree_Builder object
+    my $step_info = shift;
+    push @analysis_step, $step_info;
 }
 
 sub write_report {
@@ -100,17 +114,26 @@ sub write_report {
     print F "<h2>Analysis Steps</h2>\n";
     my $start_time = $analysis_step[0]->{start_time};
     my $time_string = localtime($start_time);
-    print F "<p>Start time $time_string\n";
+    my $duration = time() - $start_time;
+    print F "<p>Start time $time_string<br>\n";
+    print F "Duration: $duration\n";
     for my $step (@analysis_step) {
         print F "<h3>$step->{name}</h3>\n";
-        my $duration = $step->{end_time} - $step->{start_time};
-        if (scalar @{$step->{comments}}) {
-            #print F "<p>Comments: ", scalar @{$step->{comments}}, "\n<ul>\n";
+        if (exists $step->{command_line}) {
+            print F "<B>command line:</b><br>\n";
+            print F "<pre>$step->{command_line}</pre>\n";
+        }
+        if (exists $step->{comments} and scalar @{$step->{comments}}) {
+            print F "Annotation fields:\n" if $step->{name} =~ /Write PhyloXML/;
             print F "<ul>\n";
             for my $comment (@{$step->{comments}}) {
                 print F "<li>$comment\n";
             }
             print F "</ul>\n";
+        }
+        if (exists $step->{stdout} and length($step->{stdout}) > 5) {
+            #accommodate steps from Tree_Builder
+            $step->{details} = $step->{stdout};
         }
         if (exists $step->{details} and $step->{details} =~ /\S/) {
             my $element_name = "$step->{name}_details";
@@ -123,11 +146,13 @@ sub write_report {
                       x.style.display = \"none\";
                   }
               }\n</script>\n";
+            print STDERR "<script>\nfunction toggle_$element_name() \n" if $debug;
             print F "Details: <button onclick=\"toggle_$element_name()\">Show/Hide</button>\n";
             print F "<div id=\"$element_name\" style=\"display:none; background:#f0f0f0\" \n";
             print F "    onclick=\"toggle_$element_name()\">\n";
             print F "<pre>\n", $step->{details}, "\n</pre></div>\n";
         }
+        my $duration = $step->{end_time} - $step->{start_time};
         if ($duration > 10) { 
             print F "<p>Duration ", $duration, " seconds.\n";
         }
@@ -455,45 +480,45 @@ sub build_tree {
     elsif ($params->{alphabet} =~ /DNA/i) {
         $model = "GTR"
     }
-    my $output_name = $params->{output_file};
     my $recipe = "raxml"; #default
     if (defined $params->{recipe} and $params->{recipe}) {
         $recipe = lc($params->{recipe})
     }
     print STDERR "About to call tree program $recipe\n";
     my @tree_outputs;
-    if ($recipe eq 'raxml') {
-        @tree_outputs = run_raxml($aligned_fasta_file, $alphabet, $model, $output_name);
-    } elsif ($recipe eq 'phyml') {
-        my $alignment = new Sequence_Alignment($aligned_fasta_file);
-        my $phylip_file = $aligned_fasta_file;
-        $phylip_file =~ s/\..{2,4}$//;
-        $phylip_file .= ".phy";
-        $alignment->write_phylip($phylip_file);
-        @tree_outputs = run_phyml($phylip_file, $alphabet, $model, $output_name);
-    } elsif (lc($recipe) eq 'fasttree') {
-        #$alignment->write_fasta($aligned_fasta_file);
-        @tree_outputs = run_fasttree($aligned_fasta_file, $alphabet, $model, $output_name);
-    } else {
-        die "Unrecognized recipe: $recipe \n";
+
+    my $tree_builder = new Tree_Builder($aligned_fasta_file, $alphabet);
+
+    if ($model) {
+       $tree_builder->set_model($model);
     }
-    push @outputs, @tree_outputs;
+    $tree_builder->set_output_base($params->{output_file}) if defined $params->{output_file};
+    my $treeFile;
+    my $bootstrap = $params->{bootstrap};
+    if ($recipe eq 'raxml') {
+        $treeFile = $tree_builder->build_raxml_tree($bootstrap);
+    } elsif ($recipe eq 'phyml') {
+        $treeFile = $tree_builder->build_phyml_tree($bootstrap);
+    } elsif ($recipe eq 'fasttree') {
+        $treeFile = $tree_builder->build_fasttree($bootstrap);
+    } else {
+        die "Unrecognized program: $recipe \n";
+    }
+    for my $index (0..$tree_builder->get_num_analysis_steps()-1) {
+        my $step = $tree_builder->get_analysis_step($index);
+        push @analysis_step, $step;
+    }
+    my $logFile = $tree_builder->get_log_file();
+    push @outputs, ([$treeFile, "nwk"], [$logFile, "txt"]);
     # optionally re-write newick file with original sequence IDs if any were altered
     # not sure we want to do that as it could screw up downstream use of newick data i
     # (ideally, bad characters should be escaped, but does raxml know about escaped characters?)
     # generate tree graphic using figtree
-    my $tree_file = undef;
-    my $tree_graphic = undef;
-    for my $output (@outputs) {
-        my($ofile, $type) = @$output;
-        if ($type eq 'nwk') {
-            $tree_file = $ofile;
-            my $graphic_format = 'SVG';
-            $tree_graphic = generate_tree_graphic($tree_file, $num_seqs, $graphic_format);
-            push @outputs, [$tree_graphic, $graphic_format];
-        }
-    }
-    print STDERR "tree_file $tree_file\n";
+    my $graphic_format = 'SVG';
+    print STDERR "About to call generate_tree_graphic($treeFile, $num_seqs, $graphic_format)\n";
+    my $tree_graphic = generate_tree_graphic($treeFile, $num_seqs, $graphic_format);
+    push @outputs, [$tree_graphic, $graphic_format];
+    print STDERR "tree_file $treeFile\n";
     my $database_link = undef;
     for my $seq_data (@$seq_items) {
         if (exists $seq_data->{database_link}) {
@@ -505,8 +530,8 @@ sub build_tree {
         }
     }
     my $tree_type = ('gene_tree', 'genome_tree')[$database_link eq 'genome_id'];
-    my $tree = new Phylo_Tree($tree_file, $tree_type) if $tree_file;
-    if ($tree_file and $database_link) # avoid looking for metadata if ids don't link to database
+    my $tree = new Phylo_Tree($treeFile, $tree_type) if $treeFile;
+    if ($treeFile and $database_link) # avoid looking for metadata if ids don't link to database
     {  
         if ($metadata and scalar keys %$metadata > 1) {
             print STDERR "metadata: hash size = " . scalar(keys %$metadata). "\n" if $debug;
@@ -537,13 +562,15 @@ sub build_tree {
             }
             close F;
             push @outputs, [$metadata_file, "tsv"];
+            my ($step_comments, $step_info) = start_step("Write PhyloXML");
+            my $phyloxml_data = $tree->write_phyloXML();
+            my $phyloxml_file = $treeFile;
+            push @{$step_comments}, @header_fields;
+            $phyloxml_file =~ s/.nwk/.phyloxml/;
+            write_file($phyloxml_file, $phyloxml_data);
+            push @outputs, [$phyloxml_file, "phyloxml"];
+            end_step("Write PhyloXML");
         }
-        my ($step_comments, $step_info) = start_step("Write PhyloXML");
-        my $phyloxml_data = $tree->write_phyloXML();
-        my $phyloxml_file = "$params->{output_file}.xml";
-        write_file($phyloxml_file, $phyloxml_data);
-        push @outputs, [$phyloxml_file, "phyloxml"];
-        end_step("Write PhyloXML");
 
         if (exists $params->{relabel_tree_fields}) {
             my @relabel_fields;
@@ -552,7 +579,7 @@ sub build_tree {
             }
             if (scalar @relabel_fields) {
                 print STDERR "Now write a tree with ids substituted with metadata fields: ", join(", ", @relabel_fields), "\n";
-                my $relabeled_newick_file = label_tree_with_metadata($tree_file, $metadata, \@relabel_fields);
+                my $relabeled_newick_file = label_tree_with_metadata($treeFile, $metadata, \@relabel_fields);
                 push @outputs, [$relabeled_newick_file, 'nwk'];
             }
         }
@@ -754,7 +781,7 @@ sub trim_alignment {
 }
 
 sub run_raxml {
-    my ($alignment_file, $alphabet, $model, $output_name) = @_;
+    my ($alignment_file, $alphabet, $model, $output_name, $bootstrap) = @_;
     my ($step_comments, $step_info) = start_step("Phylogenetic Inference with RAxML");
     print STDERR "In run_raxml (with RELL support), alignment = $alignment_file\n";
     my $parallel = $ENV{P3_ALLOCATED_CPU};
@@ -776,7 +803,15 @@ sub run_raxml {
     push @cmd, ("-m", $model);
     push @cmd, ("-s", basename($alignment_file));
     push @cmd, ("-n", $output_name);
-    push @cmd, ("-f", "D"); # generate RELL support values
+    my $support_trees;
+    if ($bootstrap) {
+        push @cmd, ("-f",  "d"); # just do ML search (generate bootstrap trees separately later)
+        $support_trees = "RAxML_bootstrap." . $output_name . "_bootstrap";
+    }
+    else {
+        push @cmd, ("-f", "D"); # generate RELL replicate trees
+        $support_trees = "RAxML_rellBootstrap." . $output_name;
+    }
     
     my $comment = "command = ". join(" ", @cmd);
     push @{$step_comments}, $comment;
@@ -785,36 +820,49 @@ sub run_raxml {
     my ($out, $err) = run_cmd(\@cmd);
     print STDERR "STDOUT:\n$out\n";
     print STDERR "STDERR:\n$err\n";
-    $step_info->{details} = $out;
+    #$step_info->{details} = $out;
 
-    # now map RELL bootstrap replicates support numbers onto ML tree
+    if ($bootstrap) {
+        if ($alphabet eq 'DNA') {
+            $model = 'GTRCAT'
+        }
+        @cmd = ("raxmlHPC-PTHREADS-SSE3");
+        push @cmd, ("-T", $parallel);
+        push @cmd, ("-m", $model);
+        push @cmd, ("-s", basename($alignment_file));
+        push @cmd, ("-n", $output_name . "_bootstrap");
+        push @cmd, ("-b",  "12345", "-#", $bootstrap, "-p", "12345");
+        ($out, $err) = run_cmd(\@cmd);
+    }
+    # now map replicate support numbers onto ML tree (from either bootstrap or RELL output)
     @cmd = ("raxmlHPC-PTHREADS-SSE3", "-f", "b", "-m", "GTRCAT"); #to map RELL bootstrap support onto ML tree
     push @cmd, ("-t", "RAxML_bestTree.".$output_name);
-    push @cmd, ("-z", "RAxML_rellBootstrap.". $output_name);
-    push @cmd, ("-n", $output_name . "_rell");
+    push @cmd, ("-z", $support_trees);
+    push @cmd, ("-n", $output_name . "_support");
+    print STDERR "Map support values onto ML tree:\n", join(" ", @cmd), "\n";
     my ($out, $err) = run_cmd(\@cmd);
     print STDERR "STDOUT:\n$out\n";
     print STDERR "STDERR:\n$err\n";
-    $step_info->{details} .= $out;
+    #$step_info->{details} .= $out;
     
     my @outputs;
-    my $treeFile = $output_name . "_RAxML_tree_rell.nwk";
-    move("RAxML_bipartitions.".$output_name. "_rell", $treeFile);
-    my $logFile = $output_name . "_RAxML_log.txt";
-    move("RAxML_info.".$output_name, $logFile);
+    my $treeFile = $output_name . "_raxml_tree.nwk";
+    move("RAxML_bipartitions.".$output_name. "_support", $treeFile);
+    my $logFile = $output_name . "_raxml_log.txt";
+    move("RAxML_info.".$output_name . "_support", $logFile);
     #my $details = read_file($logFile);
     #$step_info->{details} .= $details;
     push @outputs, [$treeFile, 'nwk'];
     push @outputs, [$logFile, 'txt'];
 
     run("ls -ltr");
-    end_step("Phylogenetic Inference with RAxML");
+    #end_step("Phylogenetic Inference with RAxML");
     return @outputs;
 }
 
 sub run_phyml {
-    my ($alignment_file, $alphabet, $model, $output_name) = @_;
-    my ($step_comments, $step_info) = start_step("Phylogenetic Inference with Phyml");
+    my ($alignment_file, $alphabet, $model, $output_name, $bootstrap) = @_;
+    #my ($step_comments, $step_info) = start_step("Phylogenetic Inference with Phyml");
 
     my $cwd = getcwd();
     
@@ -831,18 +879,23 @@ sub run_phyml {
     push @cmd, ("-i", $alignment_file);
     push @cmd, ("-d", $datatype);
     push @cmd, ("-m", $model);
-    push @cmd, ("-b", '-3'); # -1 gives approximate Likelihood Ratio Tests
-    # -2 give Chi2-based parametric branch supports
-    # -3 gives Shimodaira-Hasegawa (SH) support values
+    if ($bootstrap) {
+        push @cmd, ("-b", $bootstrap); # normal bootstrap replicates
+    }
+    else {
+        push @cmd, ("-b", '-3'); # -1 gives approximate Likelihood Ratio Tests
+        # -2 give Chi2-based parametric branch supports
+        # -3 gives Shimodaira-Hasegawa (SH) support values
+    }
     
     my $comment = "command = ". join(" ", @cmd);
-    push @{$step_comments}, $comment;
+    #push @{$step_comments}, $comment;
     print STDERR "$comment\n\n";
    
     my ($out, $err) = run_cmd(\@cmd);
     print STDERR "STDOUT:\n$out\n";
     print STDERR "STDERR:\n$err\n";
-    $step_info->{details} = $out;
+    #$step_info->{details} = $out;
     #$step_info->{stderr} = $err;
     #my $comment = "return code = $rc\n";
     #push @{$step_comments}, $comment;
@@ -853,41 +906,75 @@ sub run_phyml {
     my $logFile = $output_name."_phyml_log.txt";
     move($alignment_file."_phyml_stats.txt", $logFile);
     my $details = read_file($logFile);
-    $step_info->{details} .= $details;
+    #$step_info->{details} .= $details;
     push @outputs, [$treeFile, 'nwk'];
     push @outputs, [$logFile, 'txt'];
 
     run("ls -ltr");
 
-    end_step("Phylogenetic Inference with Phyml");
+    #end_step("Phylogenetic Inference with Phyml");
     return @outputs;
 }
 
 sub run_fasttree {
-    my ($alignment_file, $alphabet, $model, $output_name) = @_;
-    my ($step_comments, $step_info) = start_step("Phylogenetic Inference with FastTree");
-
+    my ($alignment_file, $alphabet, $model, $output_name, $bootstrap) = @_;
+    #my ($step_comments, $step_info) = start_step("Phylogenetic Inference with FastTree");
     my $treeFile = $output_name."_fasttree.nwk";
     my @cmd = ("FastTree", "-out", $treeFile);
     if ($alphabet =~ /DNA/i) {
         push @cmd, "-nt", "-gtr";
     }
     else {
-        $model = 'lg' if $model !~ /LG|WAG/i;
+        $model = 'lg' if $model !~ /lg|wag/i;
         $model = lc($model);
         push @cmd, "-$model";
     }
 
     push @cmd, $alignment_file;
     my $comment = join(" ", @cmd);
-    push @{$step_comments}, $comment; 
+    #push @{$step_comments}, $comment; 
     print STDERR $comment . "\n\n";
    
     my ($out, $err) = run_cmd(\@cmd);
     print STDERR "STDOUT:\n$out\n";
     print STDERR "STDERR:\n$err\n";
 
-    $step_info->{details} = $err;
+    if ($bootstrap) {
+        # use raxml to generate 100 data matrices
+        # use fasttree to analyze them
+        # use compareToBootstrap to count the per-branch support (as proportion)
+        @cmd = "raxmlHPC-PTHREADS-SSE3  -f j -b 123 -# $bootstrap -s $alignment_file -n boot_matrix -m GTRCAT";
+        print STDERR "Generate bootstrap matrices:\n" . join(" ", @cmd) . "\n";
+        system(@cmd);
+        die "raxml failed to produce BS1" unless -f "$alignment_file.BS1";
+        my $multi_alignment_file = $alignment_file;
+        $multi_alignment_file =~ s/\.{3,7}$//;
+        $multi_alignment_file .= "_${bootstrap}BS.phy";
+        @cmd = ("cat", "$alignment_file.BS*", ">", $multi_alignment_file);
+        print STDERR "Concatenate into one file:\n" . join(" ", @cmd) . "\n";
+        system(join(" ", @cmd)); # requires shell interpolation
+        system("rm $alignment_file.BS*"); #allow shell expansion
+        my $multi_tree_file = "multiple_bootstrap_trees.nwk";
+        @cmd = ("FastTree", "-n", $bootstrap, "-out", $multi_tree_file);
+        if ($alphabet =~ /DNA/i) {
+            push @cmd, "-nt", "-gtr";
+        }
+        else {
+            push @cmd, "-$model";
+        }
+        push @cmd, $multi_alignment_file;
+        print STDERR "Generate trees for each bootstrapped data matrix:\n" . join(" ", @cmd) . "\n";
+        system(@cmd);
+        die "FastTree did not generate multiple tree file from boostrapped matrices" unless -f $multi_tree_file;
+        my $tree_with_support = $output_name."_fasttree_boostrap_prop.nwk"; 
+        @cmd = ("CompareToBootstrap", $treeFile, $multi_tree_file, ">", $tree_with_support);
+        print STDERR "Map support onto best tree:\n" . join(" ", @cmd) . "\n";
+        system(join(' ', @cmd));
+        die "CompareToBootstrap did not generate tree with support values" unless -s $tree_with_support;
+        $treeFile = $tree_with_support;
+    }
+
+    #$step_info->{details} = $err;
     
     my @outputs;
     my $logFile = $output_name."_fasttree_log.txt";
@@ -897,7 +984,7 @@ sub run_fasttree {
 
     run("ls -ltr");
 
-    end_step("Phylogenetic Inference with FastTree");
+    #end_step("Phylogenetic Inference with FastTree");
     return @outputs;
 }
 
@@ -1011,7 +1098,7 @@ sub generate_tree_graphic {
     }
     push @cmd, $nexus_file, $tree_graphic_file;
     $comment = join(" ", @cmd);
-    push @{$step_comments}, $comment;
+    add_step_command_line(join(" ", @cmd));
     print STDERR "$comment\n";
 
     my ($stdout, $stderr) =  run_cmd(\@cmd);
@@ -1026,8 +1113,9 @@ sub run_muscle {
     print STDERR "run_muscle($unaligned, $aligned)\n";
     my ($step_comments, $step_info) = start_step("Align with muscle");
     my $cmd = ["muscle", "-in", $unaligned, "-out", $aligned];
-    my $comment = "command = " . join(" ", @$cmd);
-    push @{$step_comments}, $comment;
+    my $comment = join(" ", @$cmd);
+    add_step_command_line($comment);
+    print STDERR $comment, "\n" if $debug;
     my ($stdout, $stderr) =  run_cmd($cmd);
     $step_info->{details} = $stderr;
     end_step("Align with muscle");
@@ -1038,8 +1126,9 @@ sub run_mafft {
     print STDERR "run_mafft($unaligned, $aligned)\n";
     my ($step_comments, $step_info) = start_step("Align with mafft");
     my $cmd = ["mafft", "--auto", $unaligned];
-    my $comment = "command = " . join("\t", @$cmd);
-    print STDERR "$comment\n";
+    my $comment = join(" ", @$cmd);
+    add_step_command_line($comment);
+    print STDERR $comment, "\n" if $debug;
     my $out;
     open $out, ">$aligned";
     run($cmd, ">", $out);

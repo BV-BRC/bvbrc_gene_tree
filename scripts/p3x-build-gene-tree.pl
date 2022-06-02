@@ -39,7 +39,6 @@ use strict;
 use P3DataAPI;
 use P3Utils;
 use File::Copy ('copy', 'move');
-use Sequence_Alignment;
 use Tree_Builder;
 
 #$| = 1;

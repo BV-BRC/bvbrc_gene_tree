@@ -18,7 +18,7 @@ sub new {
     if ($debug) {
         print(STDERR "in Tree_Builder\n");
         print(STDERR " class = $class\n");
-        print(STDERR " fasta_alignment = $fasta_alignment\n");
+       print(STDERR " fasta_alignment = $fasta_alignment\n");
     }
     my $self = {};
     bless $self, $class;
@@ -53,6 +53,11 @@ DESTROY {
     print STDERR "In Tree_Builder::DESTROY\n" if $debug;
     chdir($self->{_original_wd}); # go back to original directory
 }
+sub set_output_base {
+    my ($self, $output_base) = @_;
+    $self->{_output_base} = $output_base;
+}
+
 sub set_model {
     my ($self, $model) = @_;
     $self->{_model} = $model;
@@ -75,9 +80,11 @@ sub autodetect_alphabet {
 sub add_analysis_step {
     my ($self, $descriptor, $command_line) = @_;
     my %step;
-    $step{descriptor} = $descriptor;
+    $step{name} = $descriptor;
     $step{command_line} = $command_line;
     $step{start_time} = time();
+    $step{comments} = [];
+    print STDERR "$descriptor\n$command_line\n" if $debug;
     push @{$self->{_analysis_steps}}, \%step;
 }
 
@@ -87,9 +94,15 @@ sub add_analysis_out_err {
     my $step = $self->{_analysis_steps}[$index];
     $step->{stdout} = $stdout;
     $step->{stderr} = $stderr;
-    $step->{duration} = time() - $step->{start_time};
+    $step->{end_time} = time();
 }
     
+sub add_analysis_comment {
+    my ($self, $comment) = @_;
+    my $index = $#{$self->{_analysis_steps}};
+    my $step = $self->{_analysis_steps}[$index];
+    push @{$step->{comments}}, $comment;
+}
 sub add_analysis_tree {
     my ($self, $tree_file) = @_;
     my $index = $#{$self->{_analysis_steps}};
@@ -108,6 +121,15 @@ sub get_num_analysis_steps {
     return scalar @{$self->{_analysis_steps}};
 } 
 
+sub get_analysis_step {
+    my ($self, $index) = @_;
+    if ($index > $#{$self->{_analysis_steps}}) {
+        print STDERR "Problem: index passed to get_analysis_step, $index, is higher than available steps.\n";
+        return;
+    }
+    return $self->{_analysis_steps}[$index];
+} 
+
 sub get_log_file {
     my $self = shift;
     my $index = $#{$self->{_analysis_steps}};
@@ -120,17 +142,9 @@ sub clear_analysis_history {
     $self->{_analysis_steps} = []
 }
 
-sub get_analysis_step {
-    my ($self, $index) = @_;
-    if ($index > $#{$self->{_analysis_steps}}) {
-        print STDERR "Problem: index passed to get_analysis_step, $index, is higher than available steps.\n";
-        return;
-    }
-    return $self->{_analysis_steps}[$index];
-} 
-
 sub build_raxml_tree {
     my ($self, $bootstrap) = @_;
+    chdir($self->{_tmpdir}); # do all work in temporary directory
     my $output_base = $self->{_output_base};
     my $logFile = "${output_base}_raxml_log.txt";
     $self->clear_analysis_history();
@@ -155,7 +169,7 @@ sub build_raxml_tree {
     }
     #$self->{_model} = $model;
 
-    my $analysis_descriptor = "Build maximum-likelihood tree";
+    my $analysis_descriptor = "Build maximum likelihood tree";
     my @cmd = ("raxmlHPC-PTHREADS-SSE3");
     push @cmd, ("-T", $self->{_parallel});
     push @cmd, ("-p", "12345");
@@ -163,21 +177,21 @@ sub build_raxml_tree {
     push @cmd, ("-s", $self->{_alignment_file});
     push @cmd, ("-n", $output_base);
     my $support_trees;
+    my $comment;
     my $tree_with_support_name = "${output_base}_raxml";
     if ($bootstrap) {
         push @cmd, ("-f",  "d"); # just do ML search (generate bootstrap trees separately later)
-        $tree_with_support_name .= "_bootstrap100.nwk";
+        $tree_with_support_name .= "_bootstrap_tree.nwk";
     }
     else {
         push @cmd, ("-f", "D"); # generate RELL replicate trees
         $support_trees = "RAxML_rellBootstrap." . $output_base;
-        $analysis_descriptor .= ", with RELL replicate trees.";
-        $tree_with_support_name .= "_rell.nwk";
+        $comment = "RELL replicates";
+        $tree_with_support_name .= "_rell_tree.nwk";
     }
     
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
-    my $comment = "command = ". join(" ", @cmd);
-    print STDERR "$comment\n\n" if $debug;
+    $self->add_analysis_comment($comment) if $comment;
     my ($out, $err) = run_cmd(\@cmd);
     $self->add_analysis_out_err($out, $err);
     $self->add_analysis_tree("RAxML_bestTree.$output_base");
@@ -201,6 +215,7 @@ sub build_raxml_tree {
         ($out, $err) = run_cmd(\@cmd);
         $self->add_analysis_out_err($out, $err);
         $self->add_analysis_tree($support_trees);
+        $self->add_analysis_comment("Number of bootstrap replicates = $bootstrap.");
         open CAT, ">>$logFile";
         open IN, "RAxML_info.$output_base";
         print CAT <IN>;
@@ -213,6 +228,7 @@ sub build_raxml_tree {
     push @cmd, ("-t", "RAxML_bestTree.".$output_base);
     push @cmd, ("-z", $support_trees);
     push @cmd, ("-n", $tree_with_support_name);
+    push @cmd, ("-T", $self->{_parallel}, "-p", "12345");
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
     ($out, $err) = run_cmd(\@cmd);
     $self->add_analysis_out_err($out, $err);
@@ -225,12 +241,13 @@ sub build_raxml_tree {
     close CAT;
     $self->add_analysis_log($logFile);
     move($logFile, "$self->{_original_wd}/$logFile");
+    chdir($self->{_original_wd}); 
     return $tree_with_support_name;
 }
 
-
 sub build_phyml_tree {
     my ($self, $bootstrap) = @_;
+    chdir($self->{_tmpdir}); 
     my $output_base = $self->{_output_base};
     unless ($self->{_phylip_file}) {
         Sequence_Alignment::set_debug(1) if $debug;
@@ -256,19 +273,22 @@ sub build_phyml_tree {
     push @cmd, ("-i", $self->{_phylip_file});
     push @cmd, ("-d", $datatype);
     push @cmd, ("-m", $model);
+    my $comment;
     if ($bootstrap) {
         push @cmd, ("-b", $bootstrap); # normal bootstrap replicates
-        $analysis_descriptor .= " with $bootstrap bootstrap replicates.";
-        $treeFile = $output_base."_phyml_bootstrap.nwk";
+        $comment = "With $bootstrap bootstrap replicates.";
+        $treeFile = $output_base."_phyml_bootstrap_tree.nwk";
     }
     else {
         push @cmd, ("-b", '-3'); # -1 gives approximate Likelihood Ratio Tests
         # -2 give Chi2-based parametric branch supports
         # -3 gives Shimodaira-Hasegawa (SH) support values
-        $analysis_descriptor .= " with support values from the approximate likelihood ratio test.";
+        $comment = "Support values from the approximate likelihood ratio test.";
+        $treeFile = $output_base."_phyml_alr_tree.nwk";
     }
     
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
+    $self->add_analysis_comment($comment);
     my ($out, $err) = run_cmd(\@cmd);
     $self->add_analysis_out_err($out, $err);
     move($self->{_phylip_file}."_phyml_tree.txt", "$self->{_original_wd}/$treeFile");# copy final tree to original working directory
@@ -276,10 +296,13 @@ sub build_phyml_tree {
     my $logFile = $output_base."_phyml_log.txt";
     move($self->{_phylip_file}."_phyml_stats.txt", "$self->{_original_wd}/$logFile");
     $self->add_analysis_log($logFile);
+    chdir($self->{_original_wd}); 
+    return $treeFile;
 } 
     
 sub build_fasttree {
     my ($self, $bootstrap) = @_;
+    chdir($self->{_tmpdir}); 
     my $output_base = $self->{_output_base};
 
     my $treeFile = $output_base."_fasttree.nwk";
@@ -293,8 +316,6 @@ sub build_fasttree {
     } # else defaults to JTT for proteins
 
     push @cmd, $self->{_alignment_file};
-    my $comment = join(" ", @cmd);
-    print STDERR $comment . "\n\n";
     my $analysis_descriptor = "Build ML tree using FastTree"; 
     my $tree_file_name;
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
@@ -307,9 +328,13 @@ sub build_fasttree {
         # use raxml to generate 100 data matrices
         # use fasttree to analyze them
         # use compareToBootstrap to count the per-branch support (as proportion)
-        @cmd = "raxmlHPC-PTHREADS-SSE3  -f j -b 123 -# $bootstrap -s $self->{_alignment_file} -n boot_matrix -m GTRCAT";
-        print STDERR "Generate bootstrap matrices:\n" . join(" ", @cmd) . "\n";
-        system(@cmd);
+        my $model = ("GTRCAT", "PROTCATLG")[$self->{_alphabet} =~ /protein/i];
+        print STDERR "alphabet = $self->{_alphabet} , model = $model\n" if $debug;
+        @cmd = ('raxmlHPC-PTHREADS-SSE3',  '-f', 'j', '-b', '123', '-#', $bootstrap, '-s', $self->{_alignment_file}, '-n', 'boot_matrix', '-m', $model);
+        $analysis_descriptor = "Generate bootstrap matrices";
+        $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
+        my ($out, $err) = run_cmd(\@cmd);
+        $self->add_analysis_out_err($out, $err);
         die "raxml failed to produce BS1" unless -f "$self->{_alignment_file}.BS1";
         my $multi_alignment_file = $self->{_alignment_file};
         $multi_alignment_file =~ s/\.{3,7}$//;
@@ -324,11 +349,14 @@ sub build_fasttree {
             push @cmd, "-nt", "-gtr";
         }
         elsif ($self->{_model} =~ /lg|wag/i) {
-            push @cmd, "-" . $self->{_model};
+            push @cmd, "-" . lc($self->{_model});
         } # else defaults to jtt for proteins
         push @cmd, $multi_alignment_file;
-        print STDERR "Generate trees for each bootstrapped data matrix:\n" . join(" ", @cmd) . "\n";
-        system(@cmd);
+        $analysis_descriptor = "Generate trees for each bootstrapped data matrix";
+        $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
+        print STDERR $analysis_descriptor, "\n", join(" ", @cmd), "\n" if $debug;
+        ($out, $err) = run_cmd(\@cmd);
+        $self->add_analysis_out_err($out, $err);
         open CAT, ">>$logFile";
         open IN, "fasttree_bootstrap_log";
         print CAT <IN>;
@@ -336,17 +364,24 @@ sub build_fasttree {
         $self->add_analysis_log($logFile);
         die "FastTree did not generate multiple tree file from boostrapped matrices" unless -f $multi_tree_file;
         my $tree_with_support = $output_base."_fasttree_boostrap_prop.nwk"; 
-        @cmd = ("CompareToBootstrap", $treeFile, $multi_tree_file, ">", $tree_with_support);
-        print STDERR "Map support onto best tree:\n" . join(" ", @cmd) . "\n";
-        system(join(' ', @cmd));
+        @cmd = ("CompareToBootstrap", $treeFile, $multi_tree_file);
+        $analysis_descriptor = "Map support onto best tree";
+        $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
+        ($out, $err) = run_cmd(\@cmd);
+        $self->add_analysis_out_err($out, $err);
+        open F, ">$tree_with_support";
+        print F $out;
+        close F;
         die "CompareToBootstrap did not generate tree with support values" unless -s $tree_with_support;
         $treeFile = $tree_with_support;
+        return $treeFile;
     }
 
     move($treeFile, "$self->{_original_wd}/$treeFile");
     $self->add_analysis_tree($treeFile);
     $self->add_analysis_log($logFile);
     move($logFile, "$self->{_original_wd}/$logFile");
+    chdir($self->{_original_wd}); 
     return $treeFile;
 }
 

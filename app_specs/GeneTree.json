@@ -14,6 +14,12 @@
             "type": ["aligned_dna_fasta", "aligned_protein_fasta", "feature_dna_fasta", "feature_protein_fasta", "feature_group", "genome_group", "feature_ids"]
         },
         {
+            "id": "alignment_program",
+            "label": "Alignment Program",
+            "required": 0,
+            "type": ["muscle", "mafft"]
+        },
+        {
             "id": "trim_threshold",
             "label": "Alignment End-Trimming Threshold",
             "required": 0,
@@ -41,6 +47,12 @@
             "enum": ["HKY85", "JC69", "K80", "F81", "F84", "TN93", "GTR",
                     "LG", "WAG", "JTT", "MtREV", "Dayhoff", "DCMut", "RtREV", 
                     "CpREV", "VT", "AB", "Blosum62", "MtMam", "MtArt", "HIVw", "HIVb"]
+        },
+        {
+            "id": "bootstrap",
+            "label": "Perform boostrapping",
+            "required": 0,
+            "type": "integer",
         },
         {
             "id": "recipe",
