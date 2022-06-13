@@ -1,2 +1,0 @@
-#!/bin/sh
-perl /homes/allan/git/dev_container/modules/bvbrc_gene_tree/scripts/CompareToBootstrap.pl -tree $1 -boot $2
