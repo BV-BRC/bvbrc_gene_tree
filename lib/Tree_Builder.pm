@@ -2,6 +2,7 @@ package Tree_Builder;
 use Sequence_Alignment;
 use IPC::Run 'run';
 use File::Copy ('copy', 'move');
+use File::Path qw(make_path remove_tree);
 use File::Temp;
 use File::Basename;
 use Cwd ('abs_path', 'getcwd');
@@ -18,7 +19,7 @@ sub new {
     if ($debug) {
         print(STDERR "in Tree_Builder\n");
         print(STDERR " class = $class\n");
-       print(STDERR " fasta_alignment = $fasta_alignment\n");
+        print(STDERR " fasta_alignment = $fasta_alignment\n");
     }
     my $self = {};
     bless $self, $class;
@@ -41,7 +42,7 @@ sub new {
     $self->{_tmpdir} = File::Temp->newdir( "/tmp/Tree_Builder_XXXXX", CLEANUP => !$debug );
     system("chmod", "755", $self->{_tmpdir});
     print STDERR "created temp dir: $self->{_tmpdir}, cleanup = ", !$debug, "\n";
-    $self->{_original_wd} = getcwd();
+    $self->{_output_dir} = $self->{_original_wd} = getcwd(); 
     chdir($self->{_tmpdir}); # do all work in temporary directory
     symlink($alignment_abs_path, $self->{_alignment_name});
     return $self;
@@ -51,11 +52,19 @@ DESTROY {
     #destructor for Tree_Builder object
     my $self = shift;
     print STDERR "In Tree_Builder::DESTROY\n" if $debug;
-    chdir($self->{_original_wd}); # go back to original directory
+    #chdir($self->{_original_wd}); # go back to original directory
 }
 sub set_output_base {
     my ($self, $output_base) = @_;
     $self->{_output_base} = $output_base;
+}
+
+sub set_output_dir {
+    my ($self, $output_dir) = @_;
+    unless ( -d $output_dir ) {
+        make_path $output_dir;
+    }
+    $self->{_output_dir} = $output_dir;
 }
 
 sub set_model {
@@ -232,15 +241,14 @@ sub build_raxml_tree {
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
     ($out, $err) = run_cmd(\@cmd);
     $self->add_analysis_out_err($out, $err);
-    #system("mv RAxML_bipartitions.$tree_with_support_name", $output_base);
-    move("RAxML_bipartitions.$tree_with_support_name", "$self->{_original_wd}/$tree_with_support_name");
+    move("RAxML_bipartitions.$tree_with_support_name", "$self->{_output_dir}/$tree_with_support_name");
     $self->add_analysis_tree($tree_with_support_name);
     open CAT, ">>$logFile";
     open IN, "RAxML_info.$tree_with_support_name";
     print CAT <IN>;
     close CAT;
     $self->add_analysis_log($logFile);
-    move($logFile, "$self->{_original_wd}/$logFile");
+    move($logFile, "$self->{_output_dir}/$logFile");
     chdir($self->{_original_wd}); 
     return $tree_with_support_name;
 }
@@ -291,10 +299,10 @@ sub build_phyml_tree {
     $self->add_analysis_comment($comment);
     my ($out, $err) = run_cmd(\@cmd);
     $self->add_analysis_out_err($out, $err);
-    move($self->{_phylip_file}."_phyml_tree.txt", "$self->{_original_wd}/$treeFile");# copy final tree to original working directory
+    move($self->{_phylip_file}."_phyml_tree.txt", "$self->{_output_dir}/$treeFile");# copy final tree to original working directory
     $self->add_analysis_tree($treeFile);
     my $logFile = $output_base."_phyml_log.txt";
-    move($self->{_phylip_file}."_phyml_stats.txt", "$self->{_original_wd}/$logFile");
+    move($self->{_phylip_file}."_phyml_stats.txt", "$self->{_output_dir}/$logFile");
     $self->add_analysis_log($logFile);
     chdir($self->{_original_wd}); 
     return $treeFile;
@@ -377,10 +385,10 @@ sub build_fasttree {
         return $treeFile;
     }
 
-    move($treeFile, "$self->{_original_wd}/$treeFile");
+    move($treeFile, "$self->{_output_dir}/$treeFile");
     $self->add_analysis_tree($treeFile);
     $self->add_analysis_log($logFile);
-    move($logFile, "$self->{_original_wd}/$logFile");
+    move($logFile, "$self->{_output_dir}/$logFile");
     chdir($self->{_original_wd}); 
     return $treeFile;
 }
