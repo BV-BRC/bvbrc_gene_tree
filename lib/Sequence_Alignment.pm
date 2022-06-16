@@ -18,7 +18,7 @@ sub new {
     $self->{_seqs} = {};
     $self->{_annot} = {};
     $self->{_ids} = [];
-    $self->{_is_alinged} = 0;
+    $self->{_is_aligned} = 0;
     $self->{_length} = 0;
     $self->{_format} = '';
     if ($input) {
