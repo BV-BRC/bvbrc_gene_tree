@@ -2,6 +2,7 @@ package Sequence_Alignment;
 use strict;
 use warnings;
 use List::Util qw(max);
+use gjoseqlib;
 
 our $debug = 0;
 
@@ -56,6 +57,7 @@ sub detect_format {
     seek $fh, 0, 0; # reset file to beginning
 
     print STDERR "first line of file is :\n", $_, "\n" if $debug;
+    warn "cannot read first line of file" unless $_;
     my $format = 'unknown';
     $format = 'clustal' if (/^CLUSTAL/ || /^MUSCLE/);
     $format = 'fasta' if (/^>/);
@@ -132,38 +134,32 @@ sub read_file {
     elsif ($format eq 'fasta') {
         my $id;
         my $first_seq_len;
-        while (<$fh>) {
+        while (my($id, $def, $seq) = read_next_fasta(\*$fh))
+        {
             chomp;
-            if (/^>(\S+)/) {
-                if ($id) {
-                    my $cur_len = length($self->{_seqs}{$id});
-                    if ($first_seq_len) {
-                        print STDERR "$id length $cur_len\n" if $cur_len != $first_seq_len;
-                    }
-                    else { 
-                        print "first sequence $id has length $cur_len\n" if $debug; 
-                        $first_seq_len = $cur_len;
-                    }
-                }
-                $id = $1;
+            my $x = $seq =~ tr/ //d;
+            if ($x) { print STDERR "$x spaces found in $id\n"};
+            my $cur_len = length($seq);
+            if ($first_seq_len) {
+                print STDERR "$id length $cur_len\n" if $cur_len != $first_seq_len;
+            }
+            else { 
+                print "first sequence $id has length $cur_len\n" if $debug; 
+                $first_seq_len = $cur_len;
+            }
+            if (exists $self->{_seqs}{$id}) { # make identifier unique in case of duplicate
                 my $temp = $id;
                 my $suffix = 1;
                 while (exists $self->{_seqs}{$temp}) {
-                    print STDERR "sequence id $temp exists\n" if $debug;
                     $suffix++;
                     $temp = "${id}_$suffix";
-                    print STDERR "incrementing to $temp\n" if $debug;
                 }
+                print STDERR "sequence id $id exists\nincrementing to $temp\n" if $debug;
                 $id = $temp;
-                push @{$self->{_ids}}, $id;
-                #$self->{_annot}{$id} = $2 if $2;
-                $self->{_seqs}{$id} = '';
             }
-            else  {
-                my $x = $_ =~ tr/ //d;
-                if ($x) { print STDERR "x = $x\n"}
-                $self->{_seqs}{$id} .= $_;
-            }
+            push @{$self->{_ids}}, $id;
+            $self->{_annot}{$id} = $def if $def;
+            $self->{_seqs}{$id} = $seq;
         }
     }
     elsif ($format eq 'nexus')
@@ -199,7 +195,7 @@ sub read_file {
     for my $id (@{$self->{_ids}}) {
         if (length($self->{_seqs}{$id}) != $self->{_length}) {
             $self->{_is_aligned} = 0;
-            print STDERR "found seq of different length: ", length($self->{_seqs}{$id}), " $id\n" if $debug;
+            print STDERR "found seq of different length: ", length($self->{_seqs}{$id}), " $id, vs $self->{_length}\n" if $debug;
             $self->{_length} = max($self->{_length}, length($self->{_seqs}{$id}))
         }
         #print STDERR "id $id ; len ", length($self->{_seqs}{$id}), " ; is_al=$self->{_is_aligned} \n";
@@ -223,12 +219,17 @@ sub write_fasta {
         print $FH ">",$id, "\n";
         die "id from _id is not in _seqs" unless exists $self->{_seqs}->{$id};
         my $seq = $self->{_seqs}->{$id};
-        $seq =~ tr/-//d if $write_unaligned;
+        if ($write_unaligned) {
+            $seq =~ tr/-//d;
+        }
+        elsif (length($seq) != $self->{_length}) {
+            die "sequence $id has unexpected length: ", length($seq), " vs $self->{_length}";
+        }
         die "seq length is zero for $id" unless $seq;
         print $FH "$seq\n";
     }
     if ($out ne $FH) {
-        print "closing $FH\n";
+        print "closing $FH\n" if $debug;
         close $FH  #because we opened it
     } 
 }
@@ -337,6 +338,7 @@ sub calculate_entropy_per_column {
         my %letter_count = ();
         my $num_valid = 0;
         for my $id (@{$self->{_ids}}) {
+            die "in calculate_entropy: sequence $id too short: $column_index, versus $self->{_length}" if $column_index > length($self->{_seqs}->{$id});
             my $letter = substr($self->{_seqs}->{$id}, $column_index, 1);
             unless ($letter eq "-") {
                 $letter_count{$letter}++;
@@ -389,8 +391,7 @@ sub write_stats {
 
 sub end_trim {
     # trim gappy ends inward to a minimum occupancy threshold (proportion of non-gap chars)
-    my $self = shift;
-    my $threshold = shift;
+    my ($self, $threshold) = @_;
     print STDERR "In end_trim($threshold)\n" if $debug;
     ($threshold <= 1.0 and $threshold > 0) or die "threshold must be between 0 and 1";
     my $gap_count = $self->calc_column_gap_count();
@@ -417,6 +418,7 @@ sub end_trim {
     #print substr($vis2, $start, $len), "\n";
     for my $id (@{$self->{_ids}}) {
             $self->{_seqs}->{$id} = substr($self->{_seqs}->{$id}, $start, $len);
+            die "end trimming made sequence $id too short: ", length($self->{_seqs}->{$id}), " vs $len" if length($self->{_seqs}->{$id}) != $len;
     }
     $self->{_length} = $len;
     return ($start, $num_end_columns_trimmed);
