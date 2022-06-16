@@ -27,6 +27,10 @@ defaults to GTR for DNA and LG for protein, must be one recognized by program
 
 DNA or protein (inferred from sequences if missing)
 
+=item output_dir
+
+Directory where newick tree file and log file will be written. Defaults to current directory.
+
 =item verbose
 
 Output extra comments and leave intermediate files
@@ -39,6 +43,7 @@ use strict;
 use P3DataAPI;
 use P3Utils;
 use File::Copy ('copy', 'move');
+use File::Spec;
 use Tree_Builder;
 
 #$| = 1;
@@ -48,6 +53,7 @@ my $opt = P3Utils::script_opts('msaFile',
                 ['model|m=s', 'Substitution model (or use GTR for DNA, LG for protein)'],
                 ['alphabet|a=s', 'DNA or protein (infer if not specified)'],
                 ['bootstrap|b=n', 'Perform n bootstrap pseudoreplicates for branch support values', { default => 0 }],
+                ['output_dir|o=s', 'Output directory. (default "./")', { default => "./" }],
                 ['verbose|debug|v', 'Write status messages to STDERR'],
         );
 # Check the parameters.
@@ -67,8 +73,12 @@ if (! -f $msaFile) {
     print "Cannot find alignment file $msaFile";
     exit(1);
 }
+my $output_dir = File::Spec->rel2abs($opt->output_dir);
 # Get the debug flag.
 my $debug = $opt->verbose;
+if ($debug) {
+    Tree_Builder::set_debug($debug)
+}
 
 my $alphabet;
 if ($opt->alphabet) {
@@ -79,6 +89,7 @@ my $tree_builder = new Tree_Builder($msaFile, $alphabet);
 if ($opt->model) {
    $tree_builder->set_model($opt->model);
 }
+$tree_builder->set_output_dir($output_dir);
 my $treeFile;
 if ($opt->program eq 'raxml') {
     $treeFile = $tree_builder->build_raxml_tree($opt->bootstrap);
@@ -90,5 +101,6 @@ if ($opt->program eq 'raxml') {
     die "Unrecognized program: $opt->program \n";
 }
 my $logFile = $tree_builder->get_log_file();
+print "Output directory is $output_dir\n";
 print "Tree file is $treeFile\nLog file is $logFile\n";
 
