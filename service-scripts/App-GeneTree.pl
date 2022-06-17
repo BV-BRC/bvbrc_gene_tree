@@ -451,6 +451,7 @@ sub build_tree {
         $sequence =~ tr/-//d unless $is_aligned;
         print $outfile $sequence, "\n";
     }
+    close $outfile;
     my $alignment_modified = 0; # flag whether alignment is different from input data 
     unless ($is_aligned) {
         #run_muscle($unaligned_file, $aligned_fasta_file);
@@ -461,6 +462,8 @@ sub build_tree {
     {
         my $trimmed_aligned_file = $aligned_fasta_file;
         $trimmed_aligned_file =~ s/.afa//;
+        $trimmed_aligned_file =~ s/.fa//;
+        $trimmed_aligned_file =~ s/.fasta//;
         $trimmed_aligned_file .= "_trimmed.afa";
         my $retval = trim_alignment($aligned_fasta_file, $trimmed_aligned_file, $params->{trim_threshold}, $params->{gap_threshold});
         if ($retval) {
@@ -1125,7 +1128,12 @@ sub run_mafft {
     my ($unaligned, $aligned) = @_;
     print STDERR "run_mafft($unaligned, $aligned)\n";
     my ($step_comments, $step_info) = start_step("Align with mafft");
-    my $cmd = ["mafft", "--auto", $unaligned];
+    my $parallel = $ENV{P3_ALLOCATED_CPU};
+    my $cmd = ["mafft", "--auto"];
+    if ($parallel) {
+        push @$cmd, "--thread", $parallel;
+    }
+    push @$cmd, $unaligned;
     my $comment = join(" ", @$cmd);
     add_step_command_line($comment);
     print STDERR $comment, "\n" if $debug;
