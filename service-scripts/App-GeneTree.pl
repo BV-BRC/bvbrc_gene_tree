@@ -451,6 +451,7 @@ sub build_tree {
         $sequence =~ tr/-//d unless $is_aligned;
         print $outfile $sequence, "\n";
     }
+    close $outfile;
     my $alignment_modified = 0; # flag whether alignment is different from input data 
     unless ($is_aligned) {
         #run_muscle($unaligned_file, $aligned_fasta_file);
