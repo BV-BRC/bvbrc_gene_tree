@@ -239,7 +239,7 @@ close F;
 
 if ($workspace_dir) {
     # copy phyoxml file to user's workspace
-    my $command = "p3-cp -m xml=phyloxml";
+    my $command = "p3-cp -m phyloxml=phyloxml";
     $command .= " -f" if $opt->overwrite;
     $command .= " $phyloxml_file ws:'$workspace_dir'";
     print STDERR "commnd to copy back to workspace:\n$command\n" if $opt->verbose;
