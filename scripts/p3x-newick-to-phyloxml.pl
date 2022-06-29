@@ -231,7 +231,7 @@ for my $column (sort keys %meta_column) {
 my $phyloxml_file = $newickFile;
 $phyloxml_file =~ s/\.nwk$//;
 $phyloxml_file =~ s/\.tree$//;
-$phyloxml_file .= ".xml";
+$phyloxml_file .= ".phyloxml";
 open F, ">$phyloxml_file";
 my $phyloxml_data = $tree->write_phyloXML();
 print F $phyloxml_data;
