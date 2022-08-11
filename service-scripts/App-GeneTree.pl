@@ -55,8 +55,8 @@ sub preflight
     print STDERR "preflight: num params=", scalar keys %$params, "\n";
     my $pf = {
 	cpu => 8,
-	memory => "128G",
-	runtime => 0,
+	memory => "32G",
+	runtime => 3600 * 6,
 	storage => 0,
 	is_control_task => 0,
     };
