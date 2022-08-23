@@ -47,7 +47,8 @@ use URI::Escape;
 
 #$| = 1;
 # Get the command-line options.
-my $opt = P3Utils::script_opts('newickFile',
+
+my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['annotationtsv|a=s', 'Name of a TSV file containing annotation for tips on the tree'],
                 ['databaselink|link|l=s', 'Name of database field that tree identifiers map to (feature_id, genome_id, patric_id).'],
                 ['provenance|p=s', 'Provenance of annotation. (default: BVBRC)', { default => 'BVBRC' }],
@@ -56,8 +57,9 @@ my $opt = P3Utils::script_opts('newickFile',
                 ['overwrite|o', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
         );
+
 # Check the parameters.
-my $newickFile = $ARGV[0];
+
 if ($opt->verbose) {
     print "args=", join(", ", @ARGV), "\n";
     print "opt = %$opt\n";
@@ -65,10 +67,11 @@ if ($opt->verbose) {
         print "\t$key\t$opt->{$key}\n";
     }
 }
-if (! $newickFile) {
-    print "No input file specified.";
-    exit(1);
-}
+
+die($usage->text) if @ARGV != 1;
+
+my $newickFile = shift;
+
 # Get the debug flag.
 my $debug = $opt->verbose;
 if ($debug) {
@@ -99,14 +102,14 @@ if (scalar @fields > 2 and $fields[1] =~ '@') {
             print "Refusing to overwrite local file $newickFile. Use --overwrite (or -f) to enable overwrite.\n";
             exit(1);
         }
-        my $command = 'p3-cp';
-        $command .= ' -f' if $opt->overwrite;
-        $command .= " ws:'$workspace_newick' .";
-        print STDERR "commnd to copy from workspace:\n$command\n" if $opt->verbose;
-        system($command);
+        my @command = ('p3-cp');
+        push @command, '-f' if $opt->overwrite;
+        push @command, "ws:" . $workspace_newick;
+        print STDERR "commnd to copy from workspace:\n@command\n" if $opt->verbose;
+        my $rc = system(@command);
+	die "Failure $rc running @command" unless $rc == 0;
         unless (-f $newickFile) {
-            print "Failed to copy $workspace_newick to local file system.";
-            exit(1);
+            die "Failed to copy $workspace_newick to local file system.";
         }
     }
 }
@@ -239,9 +242,10 @@ close F;
 
 if ($workspace_dir) {
     # copy phyoxml file to user's workspace
-    my $command = "p3-cp -m phyloxml=phyloxml";
-    $command .= " -f" if $opt->overwrite;
-    $command .= " $phyloxml_file ws:'$workspace_dir'";
-    print STDERR "commnd to copy back to workspace:\n$command\n" if $opt->verbose;
-    system($command);
+    my @command = ("p3-cp", "-m", "phyloxml=phyloxml");
+    push(@command, " -f") if $opt->overwrite;
+    push(@command, $phyloxml_file, "ws:" . $workspace_dir);
+    print STDERR "commnd to copy back to workspace:\n@command\n" if $opt->verbose;
+    my $rc = system(@command);
+    die "Failure $rc running @command" unless $rc == 0;
 }
