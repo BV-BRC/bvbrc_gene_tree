@@ -231,7 +231,7 @@ for my $column (sort keys %meta_column) {
 my $phyloxml_file = $newickFile;
 $phyloxml_file =~ s/\.nwk$//;
 $phyloxml_file =~ s/\.tree$//;
-$phyloxml_file .= ".xml";
+$phyloxml_file .= ".phyloxml";
 open F, ">$phyloxml_file";
 my $phyloxml_data = $tree->write_phyloXML();
 print F $phyloxml_data;
@@ -239,7 +239,7 @@ close F;
 
 if ($workspace_dir) {
     # copy phyoxml file to user's workspace
-    my $command = "p3-cp -m xml=phyloxml";
+    my $command = "p3-cp -m phyloxml=phyloxml";
     $command .= " -f" if $opt->overwrite;
     $command .= " $phyloxml_file ws:'$workspace_dir'";
     print STDERR "commnd to copy back to workspace:\n$command\n" if $opt->verbose;
