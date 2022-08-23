@@ -44,7 +44,6 @@ use P3DataAPI;
 use P3Utils;
 use Phylo_Tree; # should be in lib directory
 use URI::Escape;
-use Data::Dumper;
 
 #$| = 1;
 # Get the command-line options.
