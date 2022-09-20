@@ -29,6 +29,16 @@ sub new {
     return $self;
 }
 
+sub set_description {
+    my ($self, $description) = @_;
+    $self->{_description} = $description;
+}
+
+sub set_name {
+    my ($self, $name) = @_;
+    $self->{_name} = $name;
+}
+
 sub get_ntips { my $self = shift; return scalar(keys %{$self->{_tips}})}
 sub get_length { my $self = shift; return $self->{_length}}
 sub get_support_type { my $self = shift; return defined $self->{_support_type} ? $self->{_support_type} : "support" }
@@ -112,9 +122,12 @@ sub write_phyloXML {
     $retval .= '<?xml version="1.0" encoding="UTF-8"?>
 <phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.20/phyloxml.xsd" xmlns="http://www.phyloxml.org">
  <phylogeny rooted="true" rerootable="true"';
-    $retval .= " type=\"$self->{_type}\"" if $self->{_type};
-    $retval .= " support_type=\"$self->{_support_type}\"" if $self->{_support_type};
+    $retval .= " type=\"$self->{_type}\"\n" if $self->{_type};
+    $retval .= " description=\"$self->{_description}\"\n" if $self->{_description};
+    $retval .= " support_type=\"$self->{_support_type}\"\n" if $self->{_support_type};
     $retval .= ">\n";
+    $retval .= " <name>$self->{_name}</name>\n" if $self->{_name};
+    $retval .= " <description>$self->{_description}</description>\n" if $self->{_description};
     $retval .= $self->{_root}->write_phyloXML(' ');  # recursively write root and all descendants
     $retval .= " </phylogeny>\n</phyloxml>\n";
 }

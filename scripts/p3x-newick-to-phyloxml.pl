@@ -56,6 +56,8 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'species,strain,geographic_group,isolation_country,host_group,host_common_name,collection_year,genus,mlst'}],
                 ['overwrite|o', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
+                ['name=s', 'Name for tree.'],
+                ['description=s', 'Description of tree.'],
         );
 
 # Check the parameters.
@@ -121,6 +123,13 @@ unless (-f $newickFile) {
 my $link = $opt->databaselink;
 my $tree = new Phylo_Tree($newickFile, $link);
 #print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n" if $debug;
+
+if ($opt->name) {
+    $tree->set_name($opt->name);
+}
+if ($opt->description) {
+    $tree->set_description($opt->description);
+}
 
 my %meta_column; #first key is column (field name), second key is row (tip ID)
 if ($opt->annotationtsv) {
