@@ -42,8 +42,10 @@ Comma separated list of genome-level fields requested for annotating tips.
 use strict;
 use P3DataAPI;
 use P3Utils;
-use Phylo_Tree; # should be in lib directory
 use URI::Escape;
+use Cwd;
+use File::Temp;
+use Phylo_Tree; # should be in lib directory
 
 #$| = 1;
 # Get the command-line options.
@@ -54,10 +56,11 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['provenance|p=s', 'Provenance of annotation. (default: BVBRC)', { default => 'BVBRC' }],
                 ['featurefields|f=s', 'Comma-separated list of feature fields to annotate each tree tip.', {default => 'product,accession'}],
                 ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'species,strain,geographic_group,isolation_country,host_group,host_common_name,collection_year,genus,mlst'}],
+                ['output_name=s', 'Output filename (will have ".phyloxml" appended if needed. Defaults to input-base + field list +.phyoxml'],
                 ['overwrite|o', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
-                ['name=s', 'Name for tree.'],
-                ['description=s', 'Description of tree.'],
+                ['name=s', 'Name for tree in phyloxml.'],
+                ['description=s', 'Description of tree in phyloxml.'],
         );
 
 # Check the parameters.
@@ -82,11 +85,16 @@ if ($debug) {
     print STDERR "args = ", join("\n", @ARGV), "\n";
 }
 
+my $tmpdir = File::Temp->newdir( "/tmp/TreeAnnotation_XXXXX", CLEANUP => !$debug );
+system("chmod", "755", "$tmpdir");
+print STDERR "created temp dir: $tmpdir, cleanup = ", !$debug, "\n";
+my $original_wd = getcwd();
 my $workspace_dir;
 my @fields = split("/", $newickFile);
 if (scalar @fields > 2 and $fields[1] =~ '@') {
     print STDERR "looking for $newickFile in user workspace\n" if $opt->verbose;
     # probably a user workspace path
+    chdir($tmpdir); # do all work in temporary directory
     my ($user, $brc) = split('@', $fields[1]);
     if ($brc and $brc =~ /patricbrc\.org|bvbrc/) {
         my $workspace_newick = $newickFile;
@@ -107,7 +115,8 @@ if (scalar @fields > 2 and $fields[1] =~ '@') {
         my @command = ('p3-cp');
         push @command, '-f' if $opt->overwrite;
         push @command, "ws:" . $workspace_newick;
-        print STDERR "commnd to copy from workspace:\n@command\n" if $opt->verbose;
+        push @command, '.';
+        print STDERR "command to copy tree from workspace:\n@command\n" if $opt->verbose;
         my $rc = system(@command);
 	die "Failure $rc running @command" unless $rc == 0;
         unless (-f $newickFile) {
@@ -243,6 +252,14 @@ for my $column (sort keys %meta_column) {
 my $phyloxml_file = $newickFile;
 $phyloxml_file =~ s/\.nwk$//;
 $phyloxml_file =~ s/\.tree$//;
+if ($opt->databaselink) { # elaborate output file name with database fields added
+    my $field_string = $opt->genomefields;
+    if ($opt->databaselink ne 'genome_id') {
+        $field_string .= "_" . $opt->featurefields;
+    }
+    $field_string =~ tr/,/_/;
+    $phyloxml_file .= "_$field_string";
+}
 $phyloxml_file .= ".phyloxml";
 open F, ">$phyloxml_file";
 my $phyloxml_data = $tree->write_phyloXML();
@@ -257,4 +274,5 @@ if ($workspace_dir) {
     print STDERR "commnd to copy back to workspace:\n@command\n" if $opt->verbose;
     my $rc = system(@command);
     die "Failure $rc running @command" unless $rc == 0;
+    chdir($original_wd); # change back to the starting working directory
 }

@@ -15,7 +15,6 @@ use Bio::KBase::AppService::AppScript;
 use Cwd;
 use URI::Escape;
 use Sequence_Alignment; # should be in lib directory
-use Phylo_Tree; # should be in lib directory
 use Tree_Builder;
 
 our $global_ws;
@@ -31,8 +30,6 @@ our $debug = 0;
 $debug = $ENV{"GeneTreeDebug"} if exists $ENV{"GeneTreeDebug"};
 if ($debug) {
     print STDERR "debug = $debug\n" if $debug;
-    Phylo_Tree::set_debug($debug); 
-    Phylo_Node::set_debug($debug); 
     Tree_Builder::set_debug($debug);
     Sequence_Alignment::set_debug($debug);
     print STDERR "args = ", join("\n", @ARGV), "\n";

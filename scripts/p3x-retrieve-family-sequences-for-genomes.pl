@@ -16,10 +16,6 @@ The command-line options are as follows.
 
 =over 4
 
-=item program
-
-mafft or muscle (case insensitive) (default mafft)
-
 =item alphabet
 
 DNA or protein (default DNA)
@@ -46,10 +42,11 @@ use P3Utils;
 #$| = 1;
 # Get the command-line options.
 my $opt = P3Utils::script_opts(['families', 'genomes'],
-                ['align', 'Align sequences with mafft'],
-                ['threads|t', 'Threads for mafft'],
                 ['alphabet|a=s', 'DNA or protein (default DNA)', { default => 'DNA'}],
                 ['output_dir|o=s', 'Output directory.' ],
+                ['threads|t=i', 'Threads for mafft'],
+                ['align', 'Align sequences with mafft'],
+                ['hmm', 'Build hmms from alignments with hmmbuild (requires --align)'],
                 ['verbose|debug|v', 'Write status messages to STDERR'],
         );
 # Check the parameters.
@@ -123,33 +120,41 @@ if ($opt->output_dir) {
 }
 
 for my $fam (@families) {
-    print "Try getting features for $fam from genomes.\n";
+    print STDERR "Try getting features for $fam from genomes.\n" if $opt->verbose;
     my $feat_aref = get_features_for_one_family($api, $fam, \@genome_list, $md5_type);
-    print "result = $feat_aref\n";
-    print "num items in result = ", scalar @$feat_aref, "\n";
+    print "result = $feat_aref\n" if $opt->verbose;
+    print "num items in result = ", scalar @$feat_aref, "\n" if $opt->verbose;
     next if @$feat_aref == 0;
     my %md5;
     for my $item (@$feat_aref) {
         $md5{$item->{$md5_type}} = 1;
-        print("$item->{patric_id} : $item->{$md5_type}\n");
+        print("$item->{patric_id} : $item->{$md5_type}\n") if $opt->verbose;
     }
-    print "Now get sequences for ", scalar(keys %md5), " uniq md5s.\n";
+    print "Now get sequences for ", scalar(keys %md5), " uniq md5s.\n" if $opt->verbose;
     my @md5s = keys %md5;
     my $seq_hash = $api->lookup_sequence_data_hash(\@md5s);
-    my $unaligned_output_file = "${fam}_unaligned.fa"; 
-    print("Writing sequenes to $unaligned_output_file\n");
+    my $unaligned_output_file = "${fam}_unaligned_" . $opt->alphabet . ".fa"; 
+    print("Writing sequenes to $unaligned_output_file\n") if $opt->verbose;
     open my $f, ">", $unaligned_output_file;
     for my $item (@$feat_aref) {
         print $f ">$item->{patric_id}\n$seq_hash->{$item->{$md5_type}}\n";
     }
     close $f;
     if ($opt->align) {
-        my $aligned_output_file = "${fam}_aligned.afa";
-        print "aligning to $aligned_output_file\n";
-        my $command = ("mafft --auto --threads $threads $unaligned_output_file > $aligned_output_file"); #using a string instead of array because redirection is needed - better option is to use open and captuer output and write to file -- TODO
+        my $aligned_output_file = "${fam}_aligned_" . $opt->alphabet . ".afa";
+        print "aligning to $aligned_output_file\n" if $opt->verbose;
+        my $command = ("mafft --auto --thread $threads $unaligned_output_file > $aligned_output_file"); #using a string instead of array because redirection is needed - better option is to use open and captuer output and write to file -- TODO
         #print "alignment command = ". join(" ", @command), "\n";
-        print "alignment command = $command\n";
+        print "alignment command = $command\n" if $opt->verbose;
         system($command);
+        if ($opt->hmm) {
+            my $hmm_file = "${fam}.hmm";
+            my $hmm_aligned_file = "${fam}_hmm_aligned.stk";
+            #-n PGF_10365126 -o PGF_10365126_hmm_stats.txt -O PGF_10365126_hmm_aligned.stk
+            my @command = ('hmmbuild', '-n', $fam, '-O', $hmm_aligned_file, '--cpu', $threads, $hmm_file, $aligned_output_file);
+            print "hmmbuild command = @command\n" if $opt->verbose;
+            system(@command);
+        }
     }
 }
 chdir($original_dir);
@@ -157,7 +162,7 @@ chdir($original_dir);
 sub get_features_for_one_family {
     my ($p3api, $family, $genomes_aref, $md5_type) = @_;
     my $family_type = '';
-    print "Test type of $family\n";
+    print STDERR "Test type of $family\n" if $opt->verbose;
     if ($family =~ /PGF_\d+/) {
         $family_type = 'pgfam_id';
     }
@@ -168,7 +173,7 @@ sub get_features_for_one_family {
         $family_type = 'sog_id';
     }
     else { die "could not figure out family type for $family\n"}
-    print "search for $family_type = $family in genomes: ", join(', ', @$genomes_aref), "\n";
+    print STDERR "search for $family_type = $family in genomes: ", join(', ', @$genomes_aref), "\n" if $opt->verbose;
     my @features;
     $p3api->query_cb(
         "genome_feature",
