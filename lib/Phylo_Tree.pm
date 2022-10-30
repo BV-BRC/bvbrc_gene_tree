@@ -18,7 +18,8 @@ sub new {
     bless $self, $class;
     $self->{_root} = {};
     $self->{_annot} = {};
-    $self->{_tips} = {};
+    $self->{_tips} = ();
+    $self->{_interior_nodes} = ();
     $self->{_type} = $type if $type;
     $self->{_support_type} = {$support_type} if $support_type;
     $self->{'_property_datatype'} = {};
@@ -39,27 +40,26 @@ sub set_name {
     $self->{_name} = $name;
 }
 
-sub get_ntips { my $self = shift; return scalar(keys %{$self->{_tips}})}
+sub get_ntips { my $self = shift; return scalar(@{$self->{_tips}})}
 sub get_length { my $self = shift; return $self->{_length}}
 sub get_support_type { my $self = shift; return defined $self->{_support_type} ? $self->{_support_type} : "support" }
 sub register_tip { 
-    my ($self, $name, $node) = @_; 
-    print STDERR "register tip:\t$name\t$node\n" if $debug > 2;
-    $self->{_tips}{$name} = $node;
+    my ($self, $node) = @_; 
+    print STDERR "register tip:\t$node\n" if $debug > 2;
+    push @{$self->{_tips}}, $node;
 }
 
-sub get_tip_identifiers {
-    my $self = shift;
-    my @ids = keys %{$self->{_tips}};
-    return \@ids
+sub register_interior_node { 
+    my ($self, $node) = @_; 
+    print STDERR "register node:\t$node\n" if $debug > 2;
+    push @{$self->{_interior_nodes}}, $node;
 }
 
-sub get_tip_ids {
+sub get_tip_names {
     my $self = shift;
     my @retval;
-    for my $name (keys %{$self->{_tips}}) {
-        my $node = $self->{_tips}{$name};
-        push @retval, $name;
+    for my $tip (@{$self->{_tips}}) {
+        push @retval, $tip->{_name};
     }
     return \@retval;
 }
@@ -104,13 +104,13 @@ sub add_tip_phyloxml_properties {
     $ref = $prop_hashref->{'column_head'} if $prop_hashref->{'column_head'};
     $ref = $prop_hashref->{'QName:ref'} if $prop_hashref->{'QName:ref'};
     $ref = "$default_provenance:$ref" unless $ref =~ /(.+):(.+)/;
-    for my $tip_name (keys %{$self->{_tips}}) {
+    for my $tip (@{$self->{_tips}}) {
         #print STDERR "try node $tip_name\n" if $debug > 1;
+        my $tip_name = $tip->{_name};
         if (exists $prop_hashref->{$tip_name}) {
             my $value = $prop_hashref->{$tip_name};
             if ($value) {
-                my $node = $self->{_tips}{$tip_name};
-                $node->add_phyloxml_property($ref, $value, $datatype, $applies_to);
+                $tip->add_phyloxml_property($ref, $value, $datatype, $applies_to);
             }
         }
     }
@@ -130,6 +130,36 @@ sub write_phyloXML {
     $retval .= " <description>$self->{_description}</description>\n" if $self->{_description};
     $retval .= $self->{_root}->write_phyloXML(' ');  # recursively write root and all descendants
     $retval .= " </phylogeny>\n</phyloxml>\n";
+}
+
+sub write_svg {
+    my $self = shift;
+    my $width = 800;
+    my $height = 600;
+    my $delta_y = 20;
+    my $current_y = $delta_y;
+    # set the y positions of the tips
+    for my $tip (@{$self->{_tips}}) {
+        $tip->{_ypos} = $current_y;
+        $current_y += $delta_y;
+    }
+    for my $node (@{$self->{_interior_nodes}}) {
+        $node->{_ypos} = 0;
+    }
+    $self->{_root}->embed_xy(0);
+    my $max_x = 0;
+    for my $tip (@{$self->{_tips}}) {
+        $max_x = Phylo_Node::max($tip->{_xpos}, $max_x);
+    }
+    print "root ypos = $self->{_root}->{_ypos}\n";
+    print "max ypos = $current_y\n";
+    print "max xpos = $max_x\n";
+    $self->{y_scale} = $width/$current_y;
+    $self->{x_scale} = $height/$max_x;
+    my $retval = "";
+    $retval .= '<svg xmlns="http://www.w3.org/2000/svg" width="$width" height="$height" style="border: 1px solid rgb(144, 144, 144);">\n';
+    $retval .= $self->{_root}->write_svg(0, 0);
+    $retval .= "</svg>\n";
 }
 
 1

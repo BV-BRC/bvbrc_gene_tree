@@ -97,7 +97,12 @@ sub parse_newick {
                 }
                 else {
                     $self->{_name} = $node_name;
-                    $self->{_tree}->register_tip($node_name, $self) unless (exists $self->{_children});
+                    if (exists $self->{_children}) {
+                        $self->{_tree}->register_interior_node($self);
+                    }
+                    else {
+                        $self->{_tree}->register_tip($self);
+                    }
                 }
             }
             else {
@@ -181,6 +186,44 @@ sub write_phyloXML {
 		}
 	}
     $retval .= $indent . "</clade>\n";
+    return $retval;
+}
+
+sub embed_xy {
+    # presupposes that all tips have had x and y pos set
+    my ($self, $parent_xpos) = @_;
+    $self->{_xpos} = $parent_xpos;
+    $self->{_xpos} += $self->{_branch_length} if exists $self->{_branch_length};
+	if (exists $self->{'_children'}) {
+        my $sum_y_pos = 0;
+        my $num_children = 0;
+		for my $child (@{$self->{'_children'}}) {
+            $sum_y_pos += $child->embed_xy($self->{_xpos});
+            $num_children++;
+		}
+        $self->{_ypos} = $sum_y_pos/$num_children;
+	}
+    return $self->{_ypos}
+}
+sub max {
+    my ($a, $b) = @_;
+    return $a > $b ? $a : $b;
+}
+
+sub write_svg {
+    my ($self, $xshift, $yshift) = @_;
+    my $retval = "<g transform=\"translate($xshift,$yshift)\">\n"; 
+    for my $child (@{$self->{'_children'}}) {
+        # calculate x and y shifts per child
+        $xshift = $child->{_branch_length} * $self->{_tree}->{x_scale};
+        $yshift = $child->{_xpos} - $self->{_xpos} * $self->{_tree}->{y_scale};
+        $retval .= "<path class="link" fill="none" stroke-width="3" stroke="#009000" d="M0,0V-130H350"/>
+        $retval .= $child->write_svg($xshift, $yshift);
+    }
+    if (exists $self->{_name}) {
+        $retval .= "<text dy=\"3.6px\" dx=\"5\">$self->{_name}</text>\n";    
+    }
+    $retval .= "</g>\n";
     return $retval;
 }
 
