@@ -216,8 +216,8 @@ sub write_svg {
     for my $child (@{$self->{'_children'}}) {
         # calculate x and y shifts per child
         $xshift = $child->{_branch_length} * $self->{_tree}->{x_scale};
-        $yshift = $child->{_xpos} - $self->{_xpos} * $self->{_tree}->{y_scale};
-        $retval .= "<path class="link" fill="none" stroke-width="3" stroke="#009000" d="M0,0V-130H350"/>
+        $yshift = $child->{_ypos} - $self->{_ypos} * $self->{_tree}->{y_scale};
+        $retval .= sprintf("<path fill=\"none\" stroke-width=\"3\" stroke=\"#009000\" d=\"M0,0V%.1fH%.1f\">\n", $yshift,$xshift);
         $retval .= $child->write_svg($xshift, $yshift);
     }
     if (exists $self->{_name}) {

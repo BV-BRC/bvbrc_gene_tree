@@ -154,8 +154,9 @@ sub write_svg {
     print "root ypos = $self->{_root}->{_ypos}\n";
     print "max ypos = $current_y\n";
     print "max xpos = $max_x\n";
-    $self->{y_scale} = $width/$current_y;
-    $self->{x_scale} = $height/$max_x;
+    $self->{y_scale} = $height/$current_y;
+    $self->{x_scale} = $width/$max_x;
+    printf("x_scale = %.4f, y_scale = %.4f\n", $self->{x_scale}, $self->{y_scale});
     my $retval = "";
     $retval .= '<svg xmlns="http://www.w3.org/2000/svg" width="$width" height="$height" style="border: 1px solid rgb(144, 144, 144);">\n';
     $retval .= $self->{_root}->write_svg(0, 0);
