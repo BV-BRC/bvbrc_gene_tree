@@ -51,9 +51,9 @@ use Phylo_Tree; # should be in lib directory
 my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['annotationtsv|a=s', 'Name of a TSV file containing annotation for tips on the tree'],
                 ['databaselink|link|l=s', 'Name of database field that tree identifiers map to (feature_id, genome_id, patric_id).'],
-                ['provenance|p=s', 'Provenance of annotation. (default: BVBRC)', { default => 'BVBRC' }],
-                ['featurefields|f=s', 'Comma-separated list of feature fields to annotate each tree tip.', {default => 'product,accession'}],
-                ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'species,strain,geographic_group,isolation_country,host_group,host_common_name,collection_year,genus,mlst'}],
+                ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'genome_name,family,order'}],
+                ['midpoint|m', 'Tree will be rooted in the middle of the longest path.'],
+                ['quartet|q=s', 'Four* tip labels, comma-separated. Tree will be rooted below first node subtending two.'],
                 ['output_name=s', 'Output filename (will have ".svg" appended if needed.'],
                 ['overwrite|o', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
@@ -127,15 +127,61 @@ unless (-f $newickFile) {
     exit(1);
 }
 
-my $link = $opt->databaselink;
-my $tree = new Phylo_Tree($newickFile, $link);
+my $tree = new Phylo_Tree($newickFile, $opt->databaselink);
 #print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n" if $debug;
+if ($opt->databaselink eq 'genome_id' and $opt->genomefields) {
+    # Get access to PATRIC.
+    my $api = P3DataAPI->new();
+    my $treeIds = $tree->get_tip_names();
+    my $num_tips = scalar @$treeIds;
+    my $limit = "limit($num_tips)";
+    print STDERR "tree IDs are: ", join(", ", @$treeIds), "\n" if $debug;
+    my @escaped_IDs = map { uri_escape $_ } @$treeIds;
+    my $query = "in(genome_id,(" . join(",",@escaped_IDs). "))";
+    print STDERR "query=$query\n" if $debug;
+    my %meta_column;
+    my $fields = $opt->genomefields();
+    my $select = "select($fields,genome_id)";
+    if ($opt->verbose) {
+        print STDERR "query = $query&$select&$limit\n\n";
+    }
+    my ($resp, $data) = $api->submit_query('genome', "$query&$select&$limit");
+    print STDERR "data retrieved = $data\n" if $opt->verbose();
+    for my $record (@$data) {
+        print join("||", keys %$record)."\n" if $opt->verbose();
+        my $id = $record->{genome_id};
+        for my $key (keys %$record) {
+            if ($fields =~ /$key/) {
+                $record->{$key} =~ tr/'//d; # quotes mess up embedding in javascript
+                $meta_column{$key}{$id} = $record->{$key};
+            }
+        }
+    }
+    for my $field (keys %meta_column) {
+        print STDERR "add alias $field to tree\n" if $opt->verbose();
+        if ($opt->verbose) {
+            my $limit = 4;
+            for my $id (keys %{$meta_column{$field}}) {
+               print "$id\t$meta_column{$field}{$id}\n";
+               last unless $limit--;
+            } 
+        }
+        $tree->add_tip_alias($field, $meta_column{$field});
+    }
+}
 
 if ($opt->name) {
     $tree->set_name($opt->name);
 }
 if ($opt->description) {
     $tree->set_description($opt->description);
+}
+if ($opt->midpoint) {
+    $tree->midpoint_root();
+}
+if ($opt->quartet) {
+    my @quartet_labels = split(",", $opt->quartet);
+    $tree->root_by_quartet(@quartet_labels);
 }
 
 my $svg_file = $newickFile;

@@ -172,7 +172,7 @@ if ($opt->annotationtsv) {
 if ($opt->databaselink) {
     # Get access to PATRIC.
     my $api = P3DataAPI->new();
-    my $treeIds = $tree->get_tip_ids();
+    my $treeIds = $tree->get_tip_names();
     my $num_tips = scalar @$treeIds;
     my $limit = "limit($num_tips)";
     print STDERR "tree IDs are: ", join(", ", @$treeIds), "\n" if $debug;

@@ -45,13 +45,23 @@ sub get_length { my $self = shift; return $self->{_length}}
 sub get_support_type { my $self = shift; return defined $self->{_support_type} ? $self->{_support_type} : "support" }
 sub register_tip { 
     my ($self, $node) = @_; 
-    print STDERR "register tip:\t$node\n" if $debug > 2;
+    #print STDERR "register tip:\t$node\n" if $debug > 2;
+    for my $existing_node (@{$self->{_tips}}) {
+        if ($node == $existing_node) {
+            die "registering redundant node: $node";
+        }
+    }
     push @{$self->{_tips}}, $node;
 }
 
 sub register_interior_node { 
     my ($self, $node) = @_; 
-    print STDERR "register node:\t$node\n" if $debug > 2;
+    #print STDERR "register node:\t$node\n" if $debug > 2;
+    for my $existing_node (@{$self->{_interior_node}}) {
+        if ($node == $existing_node) {
+            die "registering redundant node: $node";
+        }
+    }
     push @{$self->{_interior_nodes}}, $node;
 }
 
@@ -77,7 +87,7 @@ sub read_newick {
         }
     }
     $self->{'_newick'} = $newick;
-    $self->{'_root'} = new Phylo_Node($newick, $self, 0);
+    $self->{'_root'} = new Phylo_Node($self, 0, $newick);
 }
 
 sub write_newick {
@@ -89,6 +99,191 @@ sub write_newick {
 sub get_input_newick {
     my $self = shift;
     $self->{_newick}
+}
+
+sub midpoint_root {
+    my $self = shift;
+    my %dist_to_tip;
+    my %tip_to_tip;
+    my $longest_dist = 0;
+    my $distant_tip;
+    my $deep_node;
+    # first put all tips self dist of zero on dist_to_tip to expedite later tip-to-tip calculations as a placeholder
+    for my $tip (@{$self->{_tips}}) {
+        $dist_to_tip{$tip}{$tip} = 0;
+        print "Tip $tip->{_name}\t$tip\t$tip->{_branch_length}\n" if $debug;
+    }
+    for my $node (reverse @{$self->{_interior_nodes}}) {
+        #print "\nFind dist to subtended tips: $node\n" if $debug;
+        $node->{dist_to_tip} = ();
+        my @children = @{$node->{_children}};
+        #print "Num children = ", scalar @children, "\n" if $debug;
+        for my $child (@children) {
+            #print "child $child, len dist_to_tip: ", scalar keys %{$dist_to_tip{$child}}, "\n" if $debug;
+            for my $tip_node (keys %{$dist_to_tip{$child}}) {
+                $dist_to_tip{$node}{$tip_node} = $dist_to_tip{$child}{$tip_node} + $child->{_branch_length};
+                #print "Got dist_to_tip: $child, $tip_node = $dist_to_tip{$node}{$tip_node}\n" if $debug;
+            }
+        }
+        my $num_children = scalar(@{$node->{_children}});
+        for my $index1 (0..$num_children-2) {
+            my $child1 = $node->{_children}->[$index1];
+            for my $index2 ($index1+1..$num_children-1) {
+                my $child2 = $node->{_children}->[$index2];
+                for my $tip1 (keys %{$dist_to_tip{$child1}}) {
+                    for my $tip2 (keys %{$dist_to_tip{$child2}}) {
+                        my $dist = $dist_to_tip{$node}{$tip1} + $dist_to_tip{$node}{$tip2}; 
+                        my @pair = ($tip1, $tip2);
+                        #print "tip_to_tip: @pair = $dist\n";
+                        if ($dist > $longest_dist) {
+                            $longest_dist = $dist;
+                            $distant_tip = $tip1;
+                            if ($dist_to_tip{$node}{$tip2} > $dist_to_tip{$node}{$tip1}){
+                                $distant_tip = $tip2;
+                            }
+                            $deep_node = $node;
+                            my @node_pair = ($tip1, $tip2);
+                            my @dist_pair = ($dist_to_tip{$node}{$tip1}, $dist_to_tip{$node}{$tip2});
+                            #print "longest dist: @node_pair\t@dist_pair\n" if $debug;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    print "longest dist: $longest_dist, tip=$distant_tip\n" if $debug;
+    my $half_dist = $longest_dist/2.0;
+    my $node = $self->{_root};
+    while ($dist_to_tip{$node}{$distant_tip} > $half_dist) {
+        for my $child (@{$node->{_children}}) {
+            if (exists $dist_to_tip{$child}{$distant_tip}) {
+                # follow trail toward distant tip
+                $node = $child;
+                last;
+            }
+        }
+    }
+    my $node_above_mid = $node;
+    print "half way: $node_above_mid\t$dist_to_tip{$node_above_mid}{$distant_tip}\t$node_above_mid->{_branch_length}\n" if $debug;
+    my $stem = $half_dist - $dist_to_tip{$node_above_mid}{$distant_tip};
+    print "half dist: $half_dist, stem=$stem\n" if $debug;
+    $self->root_below_node($node_above_mid, $stem);
+}
+
+sub root_by_quartet {
+    my ($self, @quartet_labels) = @_;
+    print STDERR "root_by_quartet: @quartet_labels\n" if $debug;
+    for my $i (0..$#quartet_labels) {
+        # check for uniqueness
+        for my $j ($i+1..$#quartet_labels) {
+            if ($quartet_labels[$i] == $quartet_labels[$j]) {
+                die "repeated label $quartet_labels[$i] in quartet: @quartet_labels";
+            }
+        }
+    }
+    my @quartet_nodes;
+    for my $tip (@{$self->{_tips}}) {
+        for my $label (@quartet_labels) {
+            if ($label == $tip->{_name}) {
+                push @quartet_nodes, $tip;
+            }
+        }
+    }
+    if ($#quartet_labels != $#quartet_nodes) {
+        die "Not all quartet labels found, exiting.";
+    }
+    # find first interior node subtending two quartet nodes
+    my $quartet_subtending_node = undef;
+    print STDERR "quartet nodes: @quartet_nodes\n" if $debug;
+    print STDERR "traverse interiod nodes looking for quartet ancestors.\n" if $debug;
+    for my $node (reverse @{$self->{_interior_nodes}}) {
+        my $matches = 0;
+        print STDERR " vistit $node: " if $debug;
+        for my $child (@{$node->{_children}}) {
+            for my $i (0..$#quartet_nodes) {
+                if ($child == $quartet_nodes[$i]) {
+                    $quartet_nodes[$i] = $node;
+                    $matches++;
+                    print " match to child $child" if $debug;
+                }
+            }
+        }
+        print "\n" if $debug;
+        if ($matches > 1) {
+            $quartet_subtending_node = $node;
+            last;
+        }
+    }
+    print STDERR "search for node subtending two of quartet yielded $quartet_subtending_node\n" if $debug;
+    if ($quartet_subtending_node == $self->{_root}) {
+        warn "root_by_quartet found the original root, this probably should not happen";
+    }
+    else {
+        $self->root_below_node($quartet_subtending_node);
+    }
+}
+
+sub root_below_node {
+    my ($self, $node_above_root, $stem) = @_; # create new root on branch below node, at distance stem if given
+    print STDERR "root_below_node $node_above_root, stem=$stem\n" if $debug;
+    $stem = $node_above_root->{_branch_length}/2 unless $stem;
+    my $stem_remainder = $node_above_root->{_branch_length} - $stem;
+    my @path_to_root;
+    my $path_node = undef;
+    for my $int_node (reverse @{$self->{_interior_nodes}}) {
+        # take advantage of interior node list being partially ordered, deeper nodes at beginning of list
+        if (not $path_node) {
+            if ($int_node == $node_above_root) {
+                $path_node = $int_node;
+            }
+        }
+        else {
+            for my $child (@{$int_node->{_children}}) {
+                if ($child == $path_node) {
+                    push @path_to_root, $int_node;
+                    $path_node = $int_node;
+                    last;
+                }
+            }
+        }
+    }
+    print "path_to_root: ", @path_to_root, "\n" if $debug;
+                    
+
+    my $new_root = new Phylo_Node($self);
+    print "new node = $new_root\n" if $debug;
+    $node_above_root->set_branch_length($stem);
+    $new_root->add_child($node_above_root);
+    my $node_below_root = pop @path_to_root; #special case of first re-oriented node, different than in subsequent loop
+    $node_below_root->remove_child($node_above_root);
+    my $prev_bl = $node_below_root->{_branch_length};
+    $node_below_root->set_branch_length($stem_remainder);
+    $new_root->add_child($node_below_root);
+    my $prev_node = $node_below_root;
+    print "\nnode_below_root=$node_below_root, children = @{$node_below_root->{_children}}, length = ", scalar(@{$node_below_root->{_children}}), "\n" if $debug;
+    print "Now traverse path_to_root in reverse: ", reverse(@path_to_root), "\n" if $debug;
+    for my $node (@path_to_root) {
+        print "\nreconnect node=$node, children = @{$node->{_children}}, length = ", scalar(@{$node->{_children}}), "\n" if $debug;
+        print "This is the old root.\n" if $node == $self->{_root} and $debug;
+        #last if $node == $self->{_root};
+        $node->remove_child($prev_node);
+        $prev_node->add_child($node);
+        print "node=$node, children = ", @{$node->{_children}}, "\n" if $debug;
+        print "node=$node, children = @{$node->{_children}}, length = ", scalar(@{$node->{_children}}), "\n" if $debug;
+        my $temp = $node->{_branch_length};
+        $node->set_branch_length($prev_bl);
+        $prev_bl = $temp;
+        $prev_node = $node;
+    }
+    $self->{_root} = $new_root;
+    $self->register_nodes();
+}
+
+sub register_nodes {
+    my $self = shift;
+    $self->{_tips} = ();
+    $self->{_interior_nodes} = ();
+    $self->{_root}->register();
 }
 
 sub add_tip_phyloxml_properties {
@@ -105,7 +300,6 @@ sub add_tip_phyloxml_properties {
     $ref = $prop_hashref->{'QName:ref'} if $prop_hashref->{'QName:ref'};
     $ref = "$default_provenance:$ref" unless $ref =~ /(.+):(.+)/;
     for my $tip (@{$self->{_tips}}) {
-        #print STDERR "try node $tip_name\n" if $debug > 1;
         my $tip_name = $tip->{_name};
         if (exists $prop_hashref->{$tip_name}) {
             my $value = $prop_hashref->{$tip_name};
@@ -132,35 +326,142 @@ sub write_phyloXML {
     $retval .= " </phylogeny>\n</phyloxml>\n";
 }
 
+sub add_tip_alias {
+    # an alias is a dictionary where keys are tip IDs to an alternative label
+    my ($self, $alias_title, $alias_dictionary) = @_;
+    $self->{_alias}{$alias_title} = $alias_dictionary;
+    if ($debug) {
+        print "add tip alias: $alias_title\t$self->{_alias}{$alias_title}\n";
+        my $limit = 3;
+        for my $id (sort keys %{$self->{_alias}{$alias_title}}) {
+            print "$id\t$self->{_alias}->{$alias_title}->{$id}\n";
+            last unless --$limit;
+        }
+    }
+}
+
+sub write_alias_js {
+    my $self = shift;
+    my $retval = "<script type='text/javascript'>\n";
+    for my $field (sort keys %{$self->{_alias}}) {
+        $retval .= "alias['$field'] = {";
+        print "write_alias_js for $field, $self->{_alias}{$field}" if $debug;
+        print "write_alias_js for $field, $self->{_alias}->{$field}" if $debug;
+        print ", len = ", scalar keys %{$self->{_alias}->{$field}}, "\n" if $debug;
+        my $limit = 4;
+        for my $id (sort keys %{$self->{_alias}->{$field}}) {
+            $retval .= "'$id':'$self->{_alias}->{$field}->{$id}', ";
+            print "alias: $id -> $self->{_alias}->{$field}->{$id}\n" if $debug and $limit-- > 0;
+        }
+        $retval .= "}\n";
+    }
+    $retval .= "</script>\n";
+    return $retval;
+}
+
 sub write_svg {
     my $self = shift;
     my $width = 800;
-    my $height = 600;
-    my $delta_y = 20;
+    my $delta_y = 15;
     my $current_y = $delta_y;
     # set the y positions of the tips
     for my $tip (@{$self->{_tips}}) {
+        # explicitly specify y_pos of tips in order
         $tip->{_ypos} = $current_y;
         $current_y += $delta_y;
     }
-    for my $node (@{$self->{_interior_nodes}}) {
-        $node->{_ypos} = 0;
+    my $height = $current_y;
+    for my $node (reverse @{$self->{_interior_nodes}}) {
+        $node->embed_interior_node_y();
     }
-    $self->{_root}->embed_xy(0);
+    $self->{x_scale} = 1.0;
+    $self->{_root}->embed_x(); # embed first to find max x (tip farthest from root)
     my $max_x = 0;
     for my $tip (@{$self->{_tips}}) {
         $max_x = Phylo_Node::max($tip->{_xpos}, $max_x);
+        printf("%s\t%.4f\t%.4f\n", $tip->{_name}, $tip->{_xpos}, $tip->{_ypos}) if $debug;
     }
-    print "root ypos = $self->{_root}->{_ypos}\n";
-    print "max ypos = $current_y\n";
-    print "max xpos = $max_x\n";
-    $self->{y_scale} = $height/$current_y;
-    $self->{x_scale} = $width/$max_x;
-    printf("x_scale = %.4f, y_scale = %.4f\n", $self->{x_scale}, $self->{y_scale});
-    my $retval = "";
-    $retval .= '<svg xmlns="http://www.w3.org/2000/svg" width="$width" height="$height" style="border: 1px solid rgb(144, 144, 144);">\n';
-    $retval .= $self->{_root}->write_svg(0, 0);
-    $retval .= "</svg>\n";
+    #$self->{y_scale} = $height/$current_y;
+    $self->{x_scale} = 0.5*$width/$max_x;
+    $self->{_root}->embed_x(); # re-embed now that scaling is set
+    if ($debug) {
+        print "Num interior nodes is " . scalar @{$self->{_interior_nodes}}, "\n";
+        for my $node (@{$self->{_interior_nodes}}) {
+            printf("%s\t%.4f\t%.4f\t%.4f\n", $node, $node->{_branch_length}, $node->{_xpos}, $node->{_ypos});
+        }
+        print "root ypos = $self->{_root}->{_ypos}\n";
+        print "max ypos = $current_y\n";
+        print "max xpos = $max_x\n";
+        printf("x_scale = %.4f\n", $self->{x_scale});
+    }
+    my $retval = <<END;
+<svg xmlns='http://www.w3.org/2000/svg' width='$width' height='$height' style='border: 1px solid rgb(144, 144, 144); font-size: 12px;'>
+<style>
+    .highlight { fill: rgb(255,0,0); }       
+    .tip_name { font-family: Arial, sans-serif; font-size: 10px}
+    .click_circle { cursor: pointer; opacity: 0; r: 5 }
+    .branch {fill: none; stroke-width: 3; stroke: black }
+</style>
+<script type='text/javascript'>
+    toggle_hilight=function(target) {
+       target.classList.toggle('highlight')
+       var affected_tips = target.querySelectorAll('.tip_name', '.subtree');
+       for (const tip of affected_tips) {
+           if (target.matches('.highlight')) {tip.classList.add('highlight');}
+           else {tip.classList.remove('highlight');}
+        }
+       if (on_selection_change_callback != 1) { 
+           var selected_tip_id_list = [];
+           tip_elements = document.querySelectorAll('.tip_name');
+           for (const tip of tip_elements) {
+                if (tip.matches('.highlight')) { selected_tip_id_list.push(tip.id); }
+           }
+           on_selection_change_callback(selected_tip_id_list); 
+       }
+  }
+
+   var on_selection_change_callback = 1;
+   set_on_selection_change_callback=function(callback) {
+       on_selection_change_callback = callback;
+   }
+   show_id_list_to_console=function(id_list) {
+         console.log("Selected IDs: "+id_list.join());
+   }
+   set_on_selection_change_callback(show_id_list_to_console);
+
+var alias = {};
+relabel_tips = function(dict) {
+    console.log("function relabel_tips");
+    for (var id in dict) {
+    document.getElementById(id).innerHTML = dict[id];
+    }
+}
+restore_ids = function() {
+    tip_elements = document.querySelectorAll('.tip_name');
+    for (const tip of tip_elements) {
+        tip.innerHTML = tip.id;
+    }
+}
+  
+</script>
+END
+    if (exists $self->{_alias})
+    {
+        $retval .= $self->write_alias_js();
+        my ($label_x, $label_y, $label_delta_y) = ($width - 75, 15, 15);
+        $retval .= "<text x='$label_x' y='$label_y'>Tip Label</text>\n";
+        $label_y += $label_delta_y;
+        for my $field (keys %{$self->{_alias}}) {
+            $retval .= "<text x='$label_x' y='$label_y' cursor='pointer' onclick=\"relabel_tips(alias[\'$field\'])\">$field</text>\n";
+            $label_y += $label_delta_y;
+        }
+        $retval .= "<text x='$label_x' y='$label_y' cursor='pointer' onclick='restore_ids()'>genome_id</text>\n";
+        $retval .= sprintf("<path fill='none' stroke-width='1.5' stroke='gray' d='M %d,%d V %d H %d V %d Z'/>\n", $label_x-4, 4, $label_y+4, $width-4,4);
+    }
+
+    $retval .= "<g transform='translate(25,0)'>";
+    $retval .= $self->{_root}->write_svg(0, $self->{_root}->{_ypos}+250);
+    $retval .= "</g>\n</svg>\n";
 }
 
 1
