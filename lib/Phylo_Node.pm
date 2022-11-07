@@ -154,6 +154,17 @@ sub parse_newick {
     }
 }
 
+sub describe {
+    my $self = shift;
+    print "describe: $self, bl $self->{_branch_length}";
+    if (exists $self->{_children}) {
+        print "\tchildren: @{$self->{_children}}\n";
+    }
+    else {
+        print "\tname: $self->{_name}\n";
+    }
+}
+
 sub register {
     my $self = shift;
     print "register node $self, bl $self->{_branch_length}" if $debug;
@@ -216,7 +227,15 @@ sub write_phyloXML {
     if (exists $self->{_support}) {
         $retval .= $indent . " <confidence type=\"" . $self->{_tree}->get_support_type() . "\">" . $self->{_support} . "</confidence>\n";
     }
-    if (exists $self->{_properties}) {
+    if (exists $self->{_name}) {
+        my $property_list = $self->{_tree}->get_phyloxml_properties($self->{_name});
+        if ($property_list and scalar @$property_list) {
+            for my $property (@$property_list) {
+                $retval .= $indent . " $property\n";
+            }
+        }
+    }
+    if (0 and exists $self->{_properties}) {
         print STDERR "Properties found: refs = ", join(",", keys %{$self->{_properties}}), "\n" if $debug > 2;
         for my $ref (sort keys %{$self->{_properties}}) {
             my $applies_to = $self->{_property_applies_to}{$ref};

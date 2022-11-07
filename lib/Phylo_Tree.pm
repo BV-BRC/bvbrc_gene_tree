@@ -93,7 +93,7 @@ sub read_newick {
 sub write_newick {
     my $self = shift;
     my $retval = $self->{_root}->write_newick();
-    return $retval . ";"
+    return $retval . ";\n"
 }
 
 sub get_input_newick {
@@ -230,6 +230,22 @@ sub root_below_node {
     my $stem_remainder = $node_above_root->{_branch_length} - $stem;
     my @path_to_root;
     my $path_node = undef;
+    if (0 and $debug) {
+        print "Verify order of interior nodes:\n";
+        my %visited;
+        for my $tip (@{$self->{_tips}}) {
+                $visited{$tip} = 1;
+        }
+        for my $int_node (reverse @{$self->{_interior_nodes}}) {
+            $int_node->describe();
+            for my $child (@{$int_node->{_children}}) {
+                die "child $child not seen before" unless $visited{$child};
+            }
+            $visited{$int_node} = 2;
+        }
+        print "Done verifying.\n";
+        exit(1);
+    }
     for my $int_node (reverse @{$self->{_interior_nodes}}) {
         # take advantage of interior node list being partially ordered, deeper nodes at beginning of list
         if (not $path_node) {
@@ -248,13 +264,16 @@ sub root_below_node {
         }
     }
     print "path_to_root: ", @path_to_root, "\n" if $debug;
+    for my $node (@path_to_root) {
+        $node->describe();
+    }
                     
 
     my $new_root = new Phylo_Node($self);
     print "new node = $new_root\n" if $debug;
     $node_above_root->set_branch_length($stem);
     $new_root->add_child($node_above_root);
-    my $node_below_root = pop @path_to_root; #special case of first re-oriented node, different than in subsequent loop
+    my $node_below_root = shift @path_to_root; #special case of first re-oriented node, different than in subsequent loop
     $node_below_root->remove_child($node_above_root);
     my $prev_bl = $node_below_root->{_branch_length};
     $node_below_root->set_branch_length($stem_remainder);
@@ -310,6 +329,23 @@ sub add_tip_phyloxml_properties {
     }
 }
 
+sub get_phyloxml_properties {
+    my ($self, $tip_label) = @_;
+    print STDERR "get_phyloxml_properties for $tip_label\n" if $debug;
+    my @retval = ();
+    for my $ref (sort keys %{$self->{_annotation}}) {
+        if (exists $self->{_annotation}->{$ref}->{$tip_label}) {
+            my ($data_type, $applies_to, $provenance)  = ("xsd:string", "node", "BVBRC");
+            $applies_to = $self->{_annotation}->{$ref}->{applies_to} if $self->{_annotation}->{$ref}->{applies_to};
+            $provenance = $self->{_annotation}->{$ref}->{provenance} if $self->{_annotation}->{$ref}->{provenance};
+            $data_type = $self->{_annotation}->{$ref}->{data_type} if $self->{_annotation}->{$ref}->{data_type};
+            my $property = "<property ref=\"$ref\" datatype=\"$data_type\" applies_to=\"$applies_to\">$self->{_annotation}->{$ref}->{$tip_label}</property>";
+            push @retval, $property;
+        }
+    }
+    return \@retval;
+}
+
 sub write_phyloXML {
     my $self = shift;
     my $retval = "";
@@ -326,32 +362,34 @@ sub write_phyloXML {
     $retval .= " </phylogeny>\n</phyloxml>\n";
 }
 
-sub add_tip_alias {
-    # an alias is a dictionary where keys are tip IDs to an alternative label
-    my ($self, $alias_title, $alias_dictionary) = @_;
-    $self->{_alias}{$alias_title} = $alias_dictionary;
+sub add_tip_annotation {
+    # an annotation is a dictionary where keys are tip IDs to an alternative label
+    my ($self, $annotation_title, $annotation_dictionary) = @_;
+    $self->{_annotation}{$annotation_title} = $annotation_dictionary;
     if ($debug) {
-        print "add tip alias: $alias_title\t$self->{_alias}{$alias_title}\n";
-        my $limit = 3;
-        for my $id (sort keys %{$self->{_alias}{$alias_title}}) {
-            print "$id\t$self->{_alias}->{$alias_title}->{$id}\n";
-            last unless --$limit;
+        print "add tip annotation: $annotation_title\t$self->{_annotation}{$annotation_title}\n";
+        if ($debug) {
+            my $limit = 3;
+            for my $id (sort keys %{$self->{_annotation}{$annotation_title}}) {
+                print "$id\t$self->{_annotation}->{$annotation_title}->{$id}\n";
+                last unless --$limit;
+            }
         }
     }
 }
 
-sub write_alias_js {
+sub write_annotation_js {
     my $self = shift;
     my $retval = "<script type='text/javascript'>\n";
-    for my $field (sort keys %{$self->{_alias}}) {
-        $retval .= "alias['$field'] = {";
-        print "write_alias_js for $field, $self->{_alias}{$field}" if $debug;
-        print "write_alias_js for $field, $self->{_alias}->{$field}" if $debug;
-        print ", len = ", scalar keys %{$self->{_alias}->{$field}}, "\n" if $debug;
+    for my $field (sort keys %{$self->{_annotation}}) {
+        $retval .= "annotation['$field'] = {";
+        print "write_annotation_js for $field, $self->{_annotation}{$field}" if $debug;
+        print "write_annotation_js for $field, $self->{_annotation}->{$field}" if $debug;
+        print ", len = ", scalar keys %{$self->{_annotation}->{$field}}, "\n" if $debug;
         my $limit = 4;
-        for my $id (sort keys %{$self->{_alias}->{$field}}) {
-            $retval .= "'$id':'$self->{_alias}->{$field}->{$id}', ";
-            print "alias: $id -> $self->{_alias}->{$field}->{$id}\n" if $debug and $limit-- > 0;
+        for my $id (sort keys %{$self->{_annotation}->{$field}}) {
+            $retval .= "'$id':'$self->{_annotation}->{$field}->{$id}', ";
+            print "annotation: $id -> $self->{_annotation}->{$field}->{$id}\n" if $debug and $limit-- > 0;
         }
         $retval .= "}\n";
     }
@@ -429,7 +467,7 @@ sub write_svg {
    }
    set_on_selection_change_callback(show_id_list_to_console);
 
-var alias = {};
+var annotation = {};
 relabel_tips = function(dict) {
     console.log("function relabel_tips");
     for (var id in dict) {
@@ -445,14 +483,14 @@ restore_ids = function() {
   
 </script>
 END
-    if (exists $self->{_alias})
+    if (exists $self->{_annotation})
     {
-        $retval .= $self->write_alias_js();
+        $retval .= $self->write_annotation_js();
         my ($label_x, $label_y, $label_delta_y) = ($width - 75, 15, 15);
         $retval .= "<text x='$label_x' y='$label_y'>Tip Label</text>\n";
         $label_y += $label_delta_y;
-        for my $field (keys %{$self->{_alias}}) {
-            $retval .= "<text x='$label_x' y='$label_y' cursor='pointer' onclick=\"relabel_tips(alias[\'$field\'])\">$field</text>\n";
+        for my $field (keys %{$self->{_annotation}}) {
+            $retval .= "<text x='$label_x' y='$label_y' cursor='pointer' onclick=\"relabel_tips(annotation[\'$field\'])\">$field</text>\n";
             $label_y += $label_delta_y;
         }
         $retval .= "<text x='$label_x' y='$label_y' cursor='pointer' onclick='restore_ids()'>genome_id</text>\n";
