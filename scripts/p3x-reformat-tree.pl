@@ -38,6 +38,7 @@ Comma separated list of genome-level fields requested for annotating tips.
 =cut
 
 use strict;
+use IPC::Run3;
 use P3DataAPI;
 use P3Utils;
 use URI::Escape;
@@ -52,6 +53,7 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['annotationtsv|a=s', 'Name of a TSV file containing annotation for tips on the tree'],
                 ['databaselink|link|l=s', 'Name of database field that tree identifiers map to (feature_id, genome_id, patric_id).'],
                 ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'genome_name,family,order'}],
+                ['taxon_id|t=s', 'NCBI taxon fields to annotate each tree tip.', {default => 'genome_name,family,order'}],
                 ['midpoint|m', 'Tree will be rooted in the middle of the longest path.'],
                 ['quartet|q=s', 'Four* tip labels, comma-separated. Tree will be rooted below first node subtending any two.'],
                 ['output_name=s', 'Output filename (will have ".svg" appended if needed.'],
@@ -132,8 +134,15 @@ my $tree_file_base = $newickFile;
 $tree_file_base =~ s/\.nwk$//;
 $tree_file_base =~ s/\.tree$//;
 
+my $database_link = $opt->databaselink;
+my $genome_fields = $opt->genomefields;
+if ($opt->output_format eq 'json') {
+    $database_link = 'genome_id';
+    $genome_fields = 'genome_name';
+}
+
 #print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n" if $debug;
-if ($opt->databaselink eq 'genome_id' and $opt->genomefields) {
+if ($database_link eq 'genome_id' and $genome_fields) {
     # Get access to PATRIC.
     my $api = P3DataAPI->new();
     my $treeIds = $tree->get_tip_names();
@@ -144,8 +153,7 @@ if ($opt->databaselink eq 'genome_id' and $opt->genomefields) {
     my $query = "in(genome_id,(" . join(",",@escaped_IDs). "))";
     print STDERR "query=$query\n" if $debug;
     my %meta_column;
-    my $fields = $opt->genomefields();
-    my $select = "select($fields,genome_id)";
+    my $select = "select($genome_fields,genome_id)";
     if ($opt->verbose) {
         print STDERR "query = $query&$select&$limit\n\n";
     }
@@ -155,7 +163,7 @@ if ($opt->databaselink eq 'genome_id' and $opt->genomefields) {
         print join("||", keys %$record)."\n" if $opt->verbose();
         my $id = $record->{genome_id};
         for my $key (keys %$record) {
-            if ($fields =~ /$key/) {
+            if ($genome_fields =~ /$key/) {
                 $record->{$key} =~ tr/'//d; # quotes mess up embedding in javascript
                 $meta_column{$key}{$id} = $record->{$key};
             }
@@ -207,11 +215,39 @@ elsif ($opt->output_format eq 'phyloxml') {
     close F;
 }
 elsif ($opt->output_format eq 'newick') {
-    $output_file = $tree_file_base . ".newick";
+    $output_file = $tree_file_base . ".nwk";
+    if (-f $output_file) {
+        print "File $output_file exists, not overwriting.\n";
+        exit(0);
+    }
     open F, ">$output_file";
     my $newick_data = $tree->write_newick();
     print F $newick_data;
     close F;
+}
+elsif ($opt->output_format eq 'json') {
+    # need to verify or retrieve taxon_id, taxon_name, taxon_rank
+    my ($taxon_id, $taxon_rank, $taxon_name);
+    if ($opt->taxon_id) {
+        $taxon_id = $opt->taxon_id
+    }
+    else {
+        # compute best-fitting taxon given taxonomies of genomes
+        # get lowest taxon (in taxon_lineages) that covers 80% of genomes in tree
+        $taxon_id = estimate_taxon($tree->get_tip_names());
+    }
+    my $command = ["p3-all-taxonomies", "--eq", "taxon_id,$taxon_id", "-a", "taxon_rank,taxon_name"];
+    my @stdout;
+    run3( $command, undef, \@stdout);
+    my ($id, $taxon_rank, $taxon_name) = split("\t", $stdout[1]);
+    
+    $output_file = $tree_file_base . ".json";
+    open F, ">$output_file";
+    print "now call write_json($taxon_name, $taxon_rank)\n" if $debug;
+    my $data = $tree->write_json($taxon_name, $taxon_rank);
+    print F $data;
+    close F;
+
 }
 
 if ($workspace_dir) {
@@ -224,3 +260,33 @@ if ($workspace_dir) {
     die "Failure $rc running @command" unless $rc == 0;
     chdir($original_wd); # change back to the starting working directory
 }
+
+sub estimate_taxon {
+    my $genome_ids = shift;
+    my $prop_taxa_required = 0.8;
+    my $command = ["p3-get-genome-data", "--nohead", "-a", "taxon_lineage_ids"];
+    my @stdout;
+    run3( $command, $genome_ids, \@stdout);
+    
+    my %taxon_id_count;
+    my %taxon_id_name;
+    my %taxon_id_level; # index of rank
+    for my $row (@stdout) {
+        chomp($row);
+        my ($taxon_id, $id_lineage, $name_lineage) = split('\t', $row);
+        my @taxon_ids = split("::", $id_lineage);
+        my @taxon_names = split("::", $name_lineage);
+        for my $i (0.. $#taxon_ids) {
+            $taxon_id_count{$taxon_ids[$i]}++;
+            $taxon_id_level{$taxon_ids[$i]} = $i;
+        }
+    }
+    my $approximate_taxon_id;
+    for my $taxon_id (sort {$taxon_id_count{$a}+$taxon_id_level{$a} <=> $taxon_id_count{$b}+$taxon_id_level{$b}} keys %taxon_id_count) {
+        #favor lower leve (rank) taxa that meet criterion
+        $approximate_taxon_id = $taxon_id;
+        last if ($taxon_id_count{$taxon_id} > scalar(@$genome_ids) * $prop_taxa_required);
+    }
+    return ($approximate_taxon_id);
+}
+

@@ -53,9 +53,10 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['databaselink|link|l=s', 'Name of database field that tree identifiers map to (feature_id, genome_id, patric_id).'],
                 ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'genome_name,family,order'}],
                 ['midpoint|m', 'Tree will be rooted in the middle of the longest path.'],
-                ['quartet|q=s', 'Four* tip labels, comma-separated. Tree will be rooted below first node subtending two.'],
+                ['quartet|q=s', 'Four* tip labels, comma-separated. Tree will be rooted below first node subtending any two.'],
                 ['output_name=s', 'Output filename (will have ".svg" appended if needed.'],
-                ['overwrite|o', 'Overwrite existing files if any.'],
+                ['output_format=s', 'Output format [svg|phyloxml|newick]', {default=> 'svg'}],
+                ['overwrite|f', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
                 ['name=s', 'Name for tree.'],
                 ['description=s', 'Description of tree.'],
@@ -73,8 +74,6 @@ if ($opt->verbose) {
 
 die($usage->text) if @ARGV != 1;
 
-my $newickFile = shift;
-
 # Get the debug flag.
 my $debug = $opt->verbose;
 if ($debug) {
@@ -83,6 +82,7 @@ if ($debug) {
     print STDERR "args = ", join("\n", @ARGV), "\n";
 }
 
+my $newickFile = shift;
 my $original_wd = getcwd();
 my $workspace_dir;
 my @fields = split("/", $newickFile);
@@ -126,8 +126,12 @@ unless (-f $newickFile) {
     print "Cannot find file $newickFile.";
     exit(1);
 }
-
 my $tree = new Phylo_Tree($newickFile, $opt->databaselink);
+
+my $tree_file_base = $newickFile;
+$tree_file_base =~ s/\.nwk$//;
+$tree_file_base =~ s/\.tree$//;
+
 #print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n" if $debug;
 if ($opt->databaselink eq 'genome_id' and $opt->genomefields) {
     # Get access to PATRIC.
@@ -158,7 +162,7 @@ if ($opt->databaselink eq 'genome_id' and $opt->genomefields) {
         }
     }
     for my $field (keys %meta_column) {
-        print STDERR "add alias $field to tree\n" if $opt->verbose();
+        print STDERR "add annotation $field to tree\n" if $opt->verbose();
         if ($opt->verbose) {
             my $limit = 4;
             for my $id (keys %{$meta_column{$field}}) {
@@ -166,7 +170,8 @@ if ($opt->databaselink eq 'genome_id' and $opt->genomefields) {
                last unless $limit--;
             } 
         }
-        $tree->add_tip_alias($field, $meta_column{$field});
+        $tree->add_tip_annotation($field, $meta_column{$field});
+        $tree_file_base .= "_$field";
     }
 }
 
@@ -178,26 +183,42 @@ if ($opt->description) {
 }
 if ($opt->midpoint) {
     $tree->midpoint_root();
+    $tree_file_base .= "_midpoint";
 }
 if ($opt->quartet) {
     my @quartet_labels = split(",", $opt->quartet);
     $tree->root_by_quartet(@quartet_labels);
+    $tree_file_base .= "_quarted_rooted";
 }
 
-my $svg_file = $newickFile;
-$svg_file =~ s/\.nwk$//;
-$svg_file =~ s/\.tree$//;
-$svg_file .= ".svg";
-open F, ">$svg_file";
-my $svg_data = $tree->write_svg();
-print F $svg_data;
-close F;
+my $output_file;
+if ($opt->output_format eq 'svg') {
+    $output_file = $tree_file_base . ".svg";
+    open F, ">$output_file";
+    my $svg_data = $tree->write_svg();
+    print F $svg_data;
+    close F;
+}
+elsif ($opt->output_format eq 'phyloxml') {
+    $output_file = $tree_file_base . ".phyloxml";
+    open F, ">$output_file";
+    my $data = $tree->write_phyloXML();
+    print F $data;
+    close F;
+}
+elsif ($opt->output_format eq 'newick') {
+    $output_file = $tree_file_base . ".newick";
+    open F, ">$output_file";
+    my $newick_data = $tree->write_newick();
+    print F $newick_data;
+    close F;
+}
 
 if ($workspace_dir) {
     # copy phyoxml file to user's workspace
-    my @command = ("p3-cp", "-m", "svg=svg");
+    my @command = ("p3-cp", "-m", "svg=svg", "-m", "phyloxml=phyloxml", "-m", "nwk=newick");
     push(@command, " -f") if $opt->overwrite;
-    push(@command, $svg_file, "ws:" . $workspace_dir);
+    push(@command, $output_file, "ws:" . $workspace_dir);
     print STDERR "commnd to copy back to workspace:\n@command\n" if $opt->verbose;
     my $rc = system(@command);
     die "Failure $rc running @command" unless $rc == 0;

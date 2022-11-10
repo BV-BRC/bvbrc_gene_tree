@@ -331,6 +331,8 @@ sub add_tip_phyloxml_properties {
 
 sub get_phyloxml_properties {
     my ($self, $tip_label) = @_;
+    # called from a Phylo_Node, allows keeping metadata in Phylo_Tree annotation - shared storage with svg output
+    # allows has to have enties titled 'applies_to' and 'provenance' and 'data_type' to enable special cases other than 'node', 'BVBRC' and 'xsd:string'
     print STDERR "get_phyloxml_properties for $tip_label\n" if $debug;
     my @retval = ();
     for my $ref (sort keys %{$self->{_annotation}}) {
@@ -502,4 +504,23 @@ END
     $retval .= "</g>\n</svg>\n";
 }
 
+sub write_json {
+    my ($self, $taxon_name, $taxon_rank) = @_;
+    # json fromat has 3 sections: info, labels, and tree
+    my $num_tips = $self->get_ntips();
+    my $retval = "{\n";
+    $retval .= "\t'info': {\n\t\t'count': $num_tips,\n\t\t'taxon_name': '$taxon_name',\n\t\t'taxon_rank': '$taxon_rank'\n\t},\n";
+
+    $retval .= "\t'labels': {\n";
+    my @label_rows;
+    for my $id ($self->{_annotation}->{genome_name}) {
+        push @label_rows, "\t\t'$id': '$self->{_annotation}->{genome_name}->{$id}'";
+    }
+    $retval .= join(",\n", @label_rows);
+    $retval .= "\n\t},\n";
+
+    $retval .= "\t'tree': '" . $self->write_newick() . "'\n";
+    $retval .= "}\n";
+    return $retval;    
+}
 1
