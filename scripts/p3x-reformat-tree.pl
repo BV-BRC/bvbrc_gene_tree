@@ -53,7 +53,9 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['annotationtsv|a=s', 'Name of a TSV file containing annotation for tips on the tree'],
                 ['databaselink|link|l=s', 'Name of database field that tree identifiers map to (feature_id, genome_id, patric_id).'],
                 ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'genome_name,family,order'}],
-                ['taxon_id|t=s', 'NCBI taxon fields to annotate each tree tip.', {default => 'genome_name,family,order'}],
+                ['taxon_id|t=s', 'NCBI taxon id.'],
+                ['taxon_name|t=s', 'NCBI taxon name.'],
+                ['taxon_rank|t=s', 'NCBI taxon rank.'],
                 ['midpoint|m', 'Tree will be rooted in the middle of the longest path.'],
                 ['quartet|q=s', 'Four* tip labels, comma-separated. Tree will be rooted below first node subtending any two.'],
                 ['output_name=s', 'Output filename (will have ".svg" appended if needed.'],
@@ -182,6 +184,48 @@ if ($database_link eq 'genome_id' and $genome_fields) {
         $tree_file_base .= "_$field";
     }
 }
+if ($opt->annotationtsv) {
+    my $metadata_file = $opt->annotationtsv;
+    print STDERR "reading metadata from $metadata_file\n" if $debug;
+    my %meta_column;
+    open F, $metadata_file;
+    $_ = <F>;
+    chomp;
+    my @header = split("\t");
+    shift @header; #remove first element
+    for my $column_head (@header) {
+        $meta_column{$column_head}{'column_head'} = $column_head;
+    }
+    print STDERR "Header fields: " . join(", ", @header) . "\n" if $debug;
+    while (<F>) {
+        s/^#//; # remove leading pound sign, if any
+        chomp;
+        my @fields = split("\t");
+        my $id = shift @fields; # remove first element
+        print STDERR "got metadatafields for $id\n" if $debug;
+        for my $i (0 .. $#header) {
+            my $column_head = $header[$i];
+            my $val = $fields[$i];
+            $meta_column{$column_head}{$id} = $val;
+            print STDERR "\t$column_head=$val" if $debug;
+        }
+        print STDERR "\n" if $debug;
+    }
+    for my $field (keys %meta_column) {
+        print STDERR "add annotation $field to tree\n" if $opt->verbose();
+        if ($opt->verbose) {
+            my $limit = 4;
+            for my $id (keys %{$meta_column{$field}}) {
+               print "$id\t$meta_column{$field}{$id}\n";
+               last unless $limit--;
+            } 
+        }
+        my $val = $meta_column{$field};
+        $val = '' unless $meta_column{$field};
+        $tree->add_tip_annotation($field, $val);
+        $tree_file_base .= "_$field";
+    }
+}
 
 if ($opt->name) {
     $tree->set_name($opt->name);
@@ -228,18 +272,35 @@ elsif ($opt->output_format eq 'newick') {
 elsif ($opt->output_format eq 'json') {
     # need to verify or retrieve taxon_id, taxon_name, taxon_rank
     my ($taxon_id, $taxon_rank, $taxon_name);
-    if ($opt->taxon_id) {
-        $taxon_id = $opt->taxon_id
+    if ($opt->taxon_name and $opt->taxon_rank) {
+        $taxon_name = $opt->taxon_name;
+        $taxon_rank = $opt->taxon_rank;
+        my $command = ["p3-all-taxonomies", "--eq", "taxon_name,$taxon_name", "--eq", "taxon_rank,$taxon_rank", "-a", "taxon_id"];
+        my @stdout;
+        print "running command: ", join(" ", @$command), "\n" if $debug;
+        run3( $command, undef, \@stdout);
+        $taxon_id = $stdout[1];
+        chomp($taxon_id);
+        print "results: ", join("\n", @stdout), "\n" if $debug;
     }
     else {
-        # compute best-fitting taxon given taxonomies of genomes
-        # get lowest taxon (in taxon_lineages) that covers 80% of genomes in tree
-        $taxon_id = estimate_taxon($tree->get_tip_names());
+        if ($opt->taxon_id) {
+            print "Using opt->taxon_id: ", $opt->taxon_id, " \n" if $debug;
+            $taxon_id = $opt->taxon_id
+        }
+        else {
+            # compute best-fitting taxon given taxonomies of genomes
+            # get lowest taxon (in taxon_lineages) that covers 80% of genomes in tree
+            print "Need to estimate taxon from genome IDs\n" if $debug;
+            $taxon_id = estimate_taxon($tree->get_tip_names());
+        }
+        my $command = ["p3-all-taxonomies", "--eq", "taxon_id,$taxon_id", "-a", "taxon_rank,taxon_name"];
+        my @stdout;
+        print "running command: ", join(" ", @$command), "\n" if $debug;
+        run3( $command, undef, \@stdout);
+        my ($id, $taxon_rank, $taxon_name) = split("\t", $stdout[1]);
+        print "results: ", join("\n", @stdout), "\n" if $debug;
     }
-    my $command = ["p3-all-taxonomies", "--eq", "taxon_id,$taxon_id", "-a", "taxon_rank,taxon_name"];
-    my @stdout;
-    run3( $command, undef, \@stdout);
-    my ($id, $taxon_rank, $taxon_name) = split("\t", $stdout[1]);
     
     $output_file = $tree_file_base . ".json";
     open F, ">$output_file";
@@ -264,29 +325,43 @@ if ($workspace_dir) {
 sub estimate_taxon {
     my $genome_ids = shift;
     my $prop_taxa_required = 0.8;
-    my $command = ["p3-get-genome-data", "--nohead", "-a", "taxon_lineage_ids"];
+    print "estimate_taxon from these genomes: ", join(", ", @$genome_ids), "\n\n" if $debug;
+    #my $command = ["p3-get-genome-data", "--nohead", "-a", "taxon_lineage_ids"];
+    my $command = ["p3-all-genomes", "--in", 'genome_id,'. join(",", @$genome_ids), '-a', 'taxon_lineage_ids'];
+    print "command = ", join(" ", @$command), "\n" if $debug;
     my @stdout;
     run3( $command, $genome_ids, \@stdout);
+    print "num output rows = ", scalar @stdout, "\n" if $debug;
     
     my %taxon_id_count;
-    my %taxon_id_name;
     my %taxon_id_level; # index of rank
     for my $row (@stdout) {
         chomp($row);
-        my ($taxon_id, $id_lineage, $name_lineage) = split('\t', $row);
+        my ($taxon_id, $id_lineage) = split('\t', $row);
         my @taxon_ids = split("::", $id_lineage);
-        my @taxon_names = split("::", $name_lineage);
+        pop @taxon_ids;
+        shift @taxon_ids;
+
+        print "data_row: ", join("||", @taxon_ids), "\n", if $debug;
         for my $i (0.. $#taxon_ids) {
             $taxon_id_count{$taxon_ids[$i]}++;
             $taxon_id_level{$taxon_ids[$i]} = $i;
         }
     }
     my $approximate_taxon_id;
-    for my $taxon_id (sort {$taxon_id_count{$a}+$taxon_id_level{$a} <=> $taxon_id_count{$b}+$taxon_id_level{$b}} keys %taxon_id_count) {
+    my $required_taxon_count = scalar(@$genome_ids) * $prop_taxa_required;
+    print "need $required_taxon_count members to recognize a taxon\n" if $debug;
+    #for my $taxon_id (sort {($taxon_id_count{$a}+$taxon_id_level{$a}) <=> ($taxon_id_count{$b}+$taxon_id_level{$b})} keys %taxon_id_count) {
+    for my $taxon_id (sort {($taxon_id_count{$a}) <=> ($taxon_id_count{$b})} keys %taxon_id_count) {
         #favor lower leve (rank) taxa that meet criterion
+        print "taxon $taxon_id, count= $taxon_id_count{$taxon_id}\n" if $debug;
         $approximate_taxon_id = $taxon_id;
-        last if ($taxon_id_count{$taxon_id} > scalar(@$genome_ids) * $prop_taxa_required);
+        if ($taxon_id_count{$taxon_id} > $required_taxon_count) {
+            print "exceeded required count with taxon $taxon_id, count=$taxon_id_count{$taxon_id}\n" if $debug;
+            last
+        }
     }
+    print "estimate_taxon returing $approximate_taxon_id\n" if $debug;
     return ($approximate_taxon_id);
 }
 

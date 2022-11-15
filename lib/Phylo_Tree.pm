@@ -390,8 +390,10 @@ sub write_annotation_js {
         print ", len = ", scalar keys %{$self->{_annotation}->{$field}}, "\n" if $debug;
         my $limit = 4;
         for my $id (sort keys %{$self->{_annotation}->{$field}}) {
-            $retval .= "'$id':'$self->{_annotation}->{$field}->{$id}', ";
-            print "annotation: $id -> $self->{_annotation}->{$field}->{$id}\n" if $debug and $limit-- > 0;
+            if ($self->{_annotation}->{$field}->{$id}) {
+                $retval .= "'$id':'$self->{_annotation}->{$field}->{$id}', ";
+                print "annotation: $id -> $self->{_annotation}->{$field}->{$id}\n" if $debug and $limit-- > 0;
+            }
         }
         $retval .= "}\n";
     }
@@ -513,7 +515,7 @@ sub write_json {
 
     $retval .= "\t'labels': {\n";
     my @label_rows;
-    for my $id ($self->{_annotation}->{genome_name}) {
+    for my $id (sort keys %{$self->{_annotation}->{genome_name}}) {
         push @label_rows, "\t\t'$id': '$self->{_annotation}->{genome_name}->{$id}'";
     }
     $retval .= join(",\n", @label_rows);
