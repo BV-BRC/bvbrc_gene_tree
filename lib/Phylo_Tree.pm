@@ -7,27 +7,30 @@ sub set_debug { $debug = shift;
     Phylo_Node::set_debug($debug)}
 
 sub new {
-    my ($class, $newick, $type, $support_type) = @_;
+    my ($class, $newick) = @_;
     if ($debug) {
         print(STDERR "in Phylo_Tree constructor\n");
-        print(STDERR " class = $class\n");
         print(STDERR " input = $newick\n");
-        print(STDERR " args = ", ", ".join(@_), ".\n");
     }
     my $self = {};
     bless $self, $class;
-    $self->{_root} = {};
     $self->{_annot} = {};
     $self->{_tips} = ();
     $self->{_interior_nodes} = ();
-    $self->{_type} = $type if $type;
-    $self->{_support_type} = {$support_type} if $support_type;
-    $self->{'_property_datatype'} = {};
-    $self->{'_property_applies_to'} = {};
     if ($newick) {
         $self->read_newick($newick)
     }
     return $self;
+}
+
+sub set_type {
+    my ($self, $type) = @_;
+    $self->{_type} = $type;
+}
+
+sub set_support_type {
+    my ($self, $type) = @_;
+    $self->{_support_type} = $type;
 }
 
 sub set_description {
@@ -83,7 +86,7 @@ sub read_newick {
         while(<F>) {
             chomp;
             $newick .= $_;
-            last if /\);$/;
+            last if /\)\s*;$/;
         }
     }
     $self->{'_newick'} = $newick;
@@ -336,12 +339,16 @@ sub get_phyloxml_properties {
     print STDERR "get_phyloxml_properties for $tip_label\n" if $debug;
     my @retval = ();
     for my $ref (sort keys %{$self->{_annotation}}) {
+        my $provenance = "BVBRC"; #default
+        my $data_type = "xsd:string";
+        my $applies_to = "node";
+        if (exists $self->{_annotation}->{$ref}->{'provenance'}) {
+            $provenance = $self->{_annotation}->{$ref}->{'provenance'}; #allow specifying provenance per ref (field)
+        }
+        $applies_to = $self->{_annotation}->{$ref}->{applies_to} if $self->{_annotation}->{$ref}->{applies_to};
+        $data_type = $self->{_annotation}->{$ref}->{data_type} if $self->{_annotation}->{$ref}->{data_type};
         if (exists $self->{_annotation}->{$ref}->{$tip_label}) {
-            my ($data_type, $applies_to, $provenance)  = ("xsd:string", "node", "BVBRC");
-            $applies_to = $self->{_annotation}->{$ref}->{applies_to} if $self->{_annotation}->{$ref}->{applies_to};
-            $provenance = $self->{_annotation}->{$ref}->{provenance} if $self->{_annotation}->{$ref}->{provenance};
-            $data_type = $self->{_annotation}->{$ref}->{data_type} if $self->{_annotation}->{$ref}->{data_type};
-            my $property = "<property ref=\"$ref\" datatype=\"$data_type\" applies_to=\"$applies_to\">$self->{_annotation}->{$ref}->{$tip_label}</property>";
+            my $property = "<property ref=\"$provenance:$ref\" datatype=\"$data_type\" applies_to=\"$applies_to\">$self->{_annotation}->{$ref}->{$tip_label}</property>";
             push @retval, $property;
         }
     }

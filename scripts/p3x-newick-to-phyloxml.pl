@@ -87,7 +87,7 @@ if ($debug) {
 
 my $tmpdir = File::Temp->newdir( "/tmp/TreeAnnotation_XXXXX", CLEANUP => !$debug );
 system("chmod", "755", "$tmpdir");
-print STDERR "created temp dir: $tmpdir, cleanup = ", !$debug, "\n";
+print STDERR "created temp dir: $tmpdir, cleanup = ", !$debug, "\n" if $debug;
 my $original_wd = getcwd();
 my $workspace_dir;
 my @fields = split("/", $newickFile);
@@ -129,10 +129,12 @@ unless (-f $newickFile) {
     exit(1);
 }
 
-my $link = $opt->databaselink;
-my $tree = new Phylo_Tree($newickFile, $link);
+my $tree = new Phylo_Tree($newickFile);
 #print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n" if $debug;
 
+if ($opt->databaselink) {
+    $tree->set_type($opt->databaselink);
+}
 if ($opt->name) {
     $tree->set_name($opt->name);
 }
@@ -175,6 +177,7 @@ if ($opt->databaselink) {
     my $treeIds = $tree->get_tip_names();
     my $num_tips = scalar @$treeIds;
     my $limit = "limit($num_tips)";
+    my $link = $opt->databaselink;
     print STDERR "tree IDs are: ", join(", ", @$treeIds), "\n" if $debug;
     my @escaped_IDs = map { uri_escape $_ } @$treeIds;
     my $query = "in($link,(" . join(",",@escaped_IDs). "))";
@@ -187,11 +190,13 @@ if ($opt->databaselink) {
         my %genome_to_links;
         my ($resp, $data) = $api->submit_query('genome_feature', "$query&$select&$limit");
         for my $record (@$data) {
-            #print join("||", keys %$record), "\n" if $debug;
+            #print join("||", values %$record), "\n" if $debug;
             my $id = $record->{$link};
+            print "feature $id\n" if $debug;
             for my $key (keys %$record) {
                 next if $key eq $link;
                 if ($featureFields =~ /$key/) {
+                    print "     $key -> $record->{$key}\n" if $debug;
                     $meta_column{$key}{$id} = $record->{$key};
                 }
                 if ($key eq 'genome_id') {
@@ -208,13 +213,17 @@ if ($opt->databaselink) {
                 print STDERR "query db for genome fields:\n$query\n$select\n" if $debug;
                 my ($resp, $data) = $api->submit_query('genome', "$query&$select&$limit");
                 for my $record (@$data) {
-                    print join("||", keys %$record), "\n" if $debug;
+                    #print join("||", keys %$record), "\n" if $debug;
                     my $genome_id = $record->{genome_id};
+                    print "genome $genome_id\n" if $debug;
                     for my $key (keys %$record) {
                         if ($genomeFields =~ /$key/) {
+                            print "  field $key: " if $debug;
                             for my $tree_id (@{$genome_to_links{$genome_id}}) {
                                 $meta_column{$key}{$tree_id} = $record->{$key};
+                                print " $tree_id => $record->{$key} " if $debug;
                             }
+                            print "\n" if $debug;
                         }
                     }
                 }
@@ -239,15 +248,19 @@ if ($opt->databaselink) {
             }
         }
     }
+    for my $field (keys %meta_column) {
+        $tree->add_tip_annotation($field, $meta_column{$field});
+    }
 }
 
-for my $column (sort keys %meta_column) {
+if (0) {
+    for my $column (sort keys %meta_column) {
     print "tree->add_phyloxml_tip_properties for $column\n" if $debug;
     my $provenance = "BVBRC";
     $provenance = $opt->provenance if $opt->provenance;
     $provenance = $meta_column{$column}{provenance} if exists $meta_column{$column}{provenance};
     $tree->add_tip_phyloxml_properties($meta_column{$column}, $column, $provenance);
-}
+}}
 
 my $phyloxml_file = $newickFile;
 $phyloxml_file =~ s/\.nwk$//;

@@ -49,16 +49,17 @@ use Phylo_Tree; # should be in lib directory
 #$| = 1;
 # Get the command-line options.
 
-my($opt, $usage) = P3Utils::script_opts('newickFile',
-                ['annotationtsv|a=s', 'Name of a TSV file containing annotation for tips on the tree'],
+my($opt, $usage) = P3Utils::script_opts('xxx',
+                ['infile|i=s', 'Name of the newick tree file to be reformatted (if not read from STDIN).'],
+                ['annotationtsv|tsv|a=s', 'Name of a TSV file containing annotation for tips on the tree'],
                 ['databaselink|link|l=s', 'Name of database field that tree identifiers map to (feature_id, genome_id, patric_id).'],
                 ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'genome_name,family,order'}],
-                ['taxon_id|t=s', 'NCBI taxon id.'],
-                ['taxon_name|t=s', 'NCBI taxon name.'],
-                ['taxon_rank|t=s', 'NCBI taxon rank.'],
+                ['taxon_id=s', 'NCBI taxon id.'],
+                ['taxon_name=s', 'NCBI taxon name.'],
+                ['taxon_rank=s', 'NCBI taxon rank.'],
                 ['midpoint|m', 'Tree will be rooted in the middle of the longest path.'],
                 ['quartet|q=s', 'Four* tip labels, comma-separated. Tree will be rooted below first node subtending any two.'],
-                ['output_name=s', 'Output filename (will have ".svg" appended if needed.'],
+                ['outfile|o=s', 'Output filename (optional).'],
                 ['output_format=s', 'Output format [svg|phyloxml|newick]', {default=> 'svg'}],
                 ['overwrite|f', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
@@ -69,70 +70,99 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
 # Check the parameters.
 
 if ($opt->verbose) {
-    print "args=", join(", ", @ARGV), "\n";
-    print "opt = %$opt\n";
+    print STDERR "opt = %$opt\n";
     for my $key (keys %$opt) {
-        print "\t$key\t$opt->{$key}\n";
+        print STDERR "\t$key\t$opt->{$key}\n";
     }
 }
 
-die($usage->text) if @ARGV != 1;
+#die($usage->text) if @ARGV != 1;
 
 # Get the debug flag.
 my $debug = $opt->verbose;
 if ($debug) {
     Phylo_Tree::set_debug($debug); 
     Phylo_Node::set_debug($debug); 
-    print STDERR "args = ", join("\n", @ARGV), "\n";
 }
 
-my $newickFile = shift;
+my $newickString = '';
+my $newickFile = $opt->infile;
 my $original_wd = getcwd();
 my $workspace_dir;
-my @fields = split("/", $newickFile);
-if (scalar @fields > 2 and $fields[1] =~ '@') {
-    print STDERR "looking for $newickFile in user workspace\n" if $opt->verbose;
-    # probably a user workspace path
-    my $tmpdir = File::Temp->newdir( "/tmp/TreeAnnotation_XXXXX", CLEANUP => !$debug );
-    system("chmod", "755", "$tmpdir");
-    print STDERR "created temp dir: $tmpdir, cleanup = ", !$debug, "\n";
-    chdir($tmpdir); # do all work in temporary directory
-    my ($user, $brc) = split('@', $fields[1]);
-    if ($brc and $brc =~ /patricbrc\.org|bvbrc/) {
-        my $workspace_newick = $newickFile;
-        $newickFile = pop @fields; # grab the last '/'-delimited field in user workspace path
-        $workspace_dir = join('/', @fields);
-        print STDERR "Parsed user=$user, brc=$brc, file=$newickFile\n" if $debug;
-        my $ls_result = `p3-ls '$workspace_newick'`;
-        chomp $ls_result;
-        if ($ls_result ne $workspace_newick) {
-            print "'$workspace_newick'\n'$ls_result'\n" if $opt->verbose;
-            print "Cannot access $workspace_newick\nPerhaps not logged in as user $user\n";
-            exit(1);
-        }
-        if (-f $newickFile and not $opt->overwrite) {
-            print "Refusing to overwrite local file $newickFile. Use --overwrite (or -f) to enable overwrite.\n";
-            exit(1);
-        }
-        my @command = ('p3-cp');
-        push @command, '-f' if $opt->overwrite;
-        push @command, "ws:" . $workspace_newick;
-        push @command, '.';
-        print STDERR "command to copy tree from workspace:\n@command\n" if $opt->verbose;
-        my $rc = system(@command);
-	die "Failure $rc running @command" unless $rc == 0;
-        unless (-f $newickFile) {
-            die "Failed to copy $workspace_newick to local file system.";
+if ($newickFile) {
+    my @fields = split("/", $newickFile);
+    if (scalar @fields > 2 and $fields[1] =~ '@') {
+        print STDERR "looking for $newickFile in user workspace\n" if $opt->verbose;
+        # probably a user workspace path
+        my $tmpdir = File::Temp->newdir( "/tmp/TreeAnnotation_XXXXX", CLEANUP => !$debug );
+        system("chmod", "755", "$tmpdir");
+        print STDERR "created temp dir: $tmpdir, cleanup = ", !$debug, "\n";
+        chdir($tmpdir); # do all work in temporary directory
+        my ($user, $brc) = split('@', $fields[1]);
+        if ($brc and $brc =~ /patricbrc\.org|bvbrc/) {
+            my $workspace_newick = $newickFile;
+            $newickFile = pop @fields; # grab the last '/'-delimited field in user workspace path
+            $workspace_dir = join('/', @fields);
+            print STDERR "Parsed user=$user, brc=$brc, file=$newickFile\n" if $debug;
+            my $ls_result = `p3-ls '$workspace_newick'`;
+            chomp $ls_result;
+            if ($ls_result ne $workspace_newick) {
+                print STDERR "'$workspace_newick'\n'$ls_result'\n" if $opt->verbose;
+                print STDERR "Cannot access $workspace_newick\nPerhaps not logged in as user $user\n";
+                exit(1);
+            }
+            if (-f $newickFile and not $opt->overwrite) {
+                print STDERR "Refusing to overwrite local file $newickFile. Use --overwrite (or -f) to enable overwrite.\n";
+                exit(1);
+            }
+            my @command = ('p3-cp');
+            push @command, '-f' if $opt->overwrite;
+            push @command, "ws:" . $workspace_newick;
+            push @command, '.';
+            print STDERR "command to copy tree from workspace:\n@command\n" if $opt->verbose;
+            my $rc = system(@command);
+            die "Failure $rc running @command" unless $rc == 0;
+            unless (-f $newickFile) {
+                die "Failed to copy $workspace_newick to local file system.";
+            }
         }
     }
+    print STDERR "read file $newickFile\n" if $debug;
+    open F, $newickFile or die "cannot open $newickFile";
+    while (<F>) {
+        chomp;
+        $newickString .= $_;
+        last if /;$/; # newick format ends with a semi-colon, end at first tree if multiple (one per line)
+    }
+    close F;
 }
-unless (-f $newickFile) {
-    print "Cannot find file $newickFile.";
+else { # read tree from stdin
+    while (<STDIN>) {
+        chomp;
+        $newickString .= $_;
+        last if /;$/; # newick format ends with a semi-colon, end at first tree if multiple (one per line)
+    }
+}
+unless ($newickString) {
+    print STDERR "Cannot find input newick string.";
     exit(1);
 }
-my $tree = new Phylo_Tree($newickFile, $opt->databaselink);
+my $tree = new Phylo_Tree($newickString);
+if ($opt->databaselink) {
+    $tree->set_type($opt->databaselink);
+}
+if ($opt->name) {
+    $tree->set_name($opt->name);
+}
+if ($opt->description) {
+    $tree->set_description($opt->description);
+}
 
+# tree_file_base is used to control whether to write output to file or to STDOUT: to STDOUT if it is empty
 my $tree_file_base = $newickFile;
+if ($opt->outfile) {
+    $tree_file_base = $opt->outfile;
+}
 $tree_file_base =~ s/\.nwk$//;
 $tree_file_base =~ s/\.tree$//;
 
@@ -160,9 +190,10 @@ if ($database_link eq 'genome_id' and $genome_fields) {
         print STDERR "query = $query&$select&$limit\n\n";
     }
     my ($resp, $data) = $api->submit_query('genome', "$query&$select&$limit");
+    print STDERR "resp = $resp\n" if $opt->verbose();
     print STDERR "data retrieved = $data\n" if $opt->verbose();
     for my $record (@$data) {
-        print join("||", keys %$record)."\n" if $opt->verbose();
+        print STDERR join("||", keys %$record)."\n" if $opt->verbose();
         my $id = $record->{genome_id};
         for my $key (keys %$record) {
             if ($genome_fields =~ /$key/) {
@@ -176,12 +207,12 @@ if ($database_link eq 'genome_id' and $genome_fields) {
         if ($opt->verbose) {
             my $limit = 4;
             for my $id (keys %{$meta_column{$field}}) {
-               print "$id\t$meta_column{$field}{$id}\n";
+               print STDERR "$id\t$meta_column{$field}{$id}\n";
                last unless $limit--;
             } 
         }
         $tree->add_tip_annotation($field, $meta_column{$field});
-        $tree_file_base .= "_$field";
+        $tree_file_base .= "_$field" if $tree_file_base;
     }
 }
 if ($opt->annotationtsv) {
@@ -223,7 +254,7 @@ if ($opt->annotationtsv) {
         my $val = $meta_column{$field};
         $val = '' unless $meta_column{$field};
         $tree->add_tip_annotation($field, $val);
-        $tree_file_base .= "_$field";
+        $tree_file_base .= "_$field" if $tree_file_base;
     }
 }
 
@@ -235,39 +266,48 @@ if ($opt->description) {
 }
 if ($opt->midpoint) {
     $tree->midpoint_root();
-    $tree_file_base .= "_midpoint";
+    $tree_file_base .= "_midpoint" if $tree_file_base;
 }
 if ($opt->quartet) {
     my @quartet_labels = split(",", $opt->quartet);
     $tree->root_by_quartet(@quartet_labels);
-    $tree_file_base .= "_quarted_rooted";
+    $tree_file_base .= "_quarted_rooted" if $tree_file_base;
 }
 
 my $output_file;
 if ($opt->output_format eq 'svg') {
-    $output_file = $tree_file_base . ".svg";
-    open F, ">$output_file";
     my $svg_data = $tree->write_svg();
-    print F $svg_data;
-    close F;
+    if ($tree_file_base) { # if data was from a file, write it to a file
+        $output_file = $tree_file_base . ".svg";
+        open F, ">$output_file";
+        print F $svg_data;
+        close F;
+    }
+    else {
+        print STDOUT $svg_data;
+    }
 }
 elsif ($opt->output_format eq 'phyloxml') {
-    $output_file = $tree_file_base . ".phyloxml";
-    open F, ">$output_file";
     my $data = $tree->write_phyloXML();
-    print F $data;
-    close F;
+    if ($tree_file_base) { # if data was from a file, write it to a file
+        $output_file = $tree_file_base . ".phyloxml";
+        open F, ">$output_file";
+        print STDERR F $data;
+        close F;
+    }
 }
 elsif ($opt->output_format eq 'newick') {
-    $output_file = $tree_file_base . ".nwk";
-    if (-f $output_file) {
-        print "File $output_file exists, not overwriting.\n";
-        exit(0);
-    }
-    open F, ">$output_file";
     my $newick_data = $tree->write_newick();
-    print F $newick_data;
-    close F;
+    if ($tree_file_base) { # if data was from a file, write it to a file
+        $output_file = $tree_file_base . ".nwk";
+        if (-f $output_file) {
+            print STDERR "File $output_file exists, not overwriting.\n";
+            exit(0);
+        }
+        open F, ">$output_file";
+        print STDERR F $newick_data;
+        close F;
+    }
 }
 elsif ($opt->output_format eq 'json') {
     # need to verify or retrieve taxon_id, taxon_name, taxon_rank
@@ -277,38 +317,42 @@ elsif ($opt->output_format eq 'json') {
         $taxon_rank = $opt->taxon_rank;
         my $command = ["p3-all-taxonomies", "--eq", "taxon_name,$taxon_name", "--eq", "taxon_rank,$taxon_rank", "-a", "taxon_id"];
         my @stdout;
-        print "running command: ", join(" ", @$command), "\n" if $debug;
+        print STDERR "running command: ", join(" ", @$command), "\n" if $debug;
         run3( $command, undef, \@stdout);
         $taxon_id = $stdout[1];
         chomp($taxon_id);
-        print "results: ", join("\n", @stdout), "\n" if $debug;
+        print STDERR "results: ", join("\n", @stdout), "\n" if $debug;
     }
     else {
         if ($opt->taxon_id) {
-            print "Using opt->taxon_id: ", $opt->taxon_id, " \n" if $debug;
+            print STDERR "Using opt->taxon_id: ", $opt->taxon_id, " \n" if $debug;
             $taxon_id = $opt->taxon_id
         }
         else {
             # compute best-fitting taxon given taxonomies of genomes
             # get lowest taxon (in taxon_lineages) that covers 80% of genomes in tree
-            print "Need to estimate taxon from genome IDs\n" if $debug;
+            print STDERR "Need to estimate taxon from genome IDs\n" if $debug;
             $taxon_id = estimate_taxon($tree->get_tip_names());
         }
         my $command = ["p3-all-taxonomies", "--eq", "taxon_id,$taxon_id", "-a", "taxon_rank,taxon_name"];
         my @stdout;
-        print "running command: ", join(" ", @$command), "\n" if $debug;
+        print STDERR "running command: ", join(" ", @$command), "\n" if $debug;
         run3( $command, undef, \@stdout);
         my ($id, $taxon_rank, $taxon_name) = split("\t", $stdout[1]);
-        print "results: ", join("\n", @stdout), "\n" if $debug;
+        print STDERR "results: ", join("\n", @stdout), "\n" if $debug;
     }
     
-    $output_file = $tree_file_base . ".json";
-    open F, ">$output_file";
-    print "now call write_json($taxon_name, $taxon_rank)\n" if $debug;
     my $data = $tree->write_json($taxon_name, $taxon_rank);
-    print F $data;
-    close F;
-
+    if ($tree_file_base) {
+        $output_file = $tree_file_base . ".json";
+        open F, ">$output_file";
+        print STDERR "now call write_json($taxon_name, $taxon_rank)\n" if $debug;
+        print F $data;
+        close F;
+    }
+    else {
+        print STDOUT $data;
+    }
 }
 
 if ($workspace_dir) {
@@ -325,13 +369,13 @@ if ($workspace_dir) {
 sub estimate_taxon {
     my $genome_ids = shift;
     my $prop_taxa_required = 0.8;
-    print "estimate_taxon from these genomes: ", join(", ", @$genome_ids), "\n\n" if $debug;
+    print STDERR "estimate_taxon from these genomes: ", join(", ", @$genome_ids), "\n\n" if $debug;
     #my $command = ["p3-get-genome-data", "--nohead", "-a", "taxon_lineage_ids"];
     my $command = ["p3-all-genomes", "--in", 'genome_id,'. join(",", @$genome_ids), '-a', 'taxon_lineage_ids'];
-    print "command = ", join(" ", @$command), "\n" if $debug;
+    print STDERR "command = ", join(" ", @$command), "\n" if $debug;
     my @stdout;
     run3( $command, $genome_ids, \@stdout);
-    print "num output rows = ", scalar @stdout, "\n" if $debug;
+    print STDERR "num output rows = ", scalar @stdout, "\n" if $debug;
     
     my %taxon_id_count;
     my %taxon_id_level; # index of rank
@@ -342,7 +386,7 @@ sub estimate_taxon {
         pop @taxon_ids;
         shift @taxon_ids;
 
-        print "data_row: ", join("||", @taxon_ids), "\n", if $debug;
+        print STDERR "data_row: ", join("||", @taxon_ids), "\n", if $debug;
         for my $i (0.. $#taxon_ids) {
             $taxon_id_count{$taxon_ids[$i]}++;
             $taxon_id_level{$taxon_ids[$i]} = $i;
@@ -350,18 +394,18 @@ sub estimate_taxon {
     }
     my $approximate_taxon_id;
     my $required_taxon_count = scalar(@$genome_ids) * $prop_taxa_required;
-    print "need $required_taxon_count members to recognize a taxon\n" if $debug;
+    print STDERR "need $required_taxon_count members to recognize a taxon\n" if $debug;
     #for my $taxon_id (sort {($taxon_id_count{$a}+$taxon_id_level{$a}) <=> ($taxon_id_count{$b}+$taxon_id_level{$b})} keys %taxon_id_count) {
     for my $taxon_id (sort {($taxon_id_count{$a}) <=> ($taxon_id_count{$b})} keys %taxon_id_count) {
         #favor lower leve (rank) taxa that meet criterion
-        print "taxon $taxon_id, count= $taxon_id_count{$taxon_id}\n" if $debug;
+        print STDERR "taxon $taxon_id, count= $taxon_id_count{$taxon_id}\n" if $debug;
         $approximate_taxon_id = $taxon_id;
         if ($taxon_id_count{$taxon_id} > $required_taxon_count) {
-            print "exceeded required count with taxon $taxon_id, count=$taxon_id_count{$taxon_id}\n" if $debug;
+            print STDERR "exceeded required count with taxon $taxon_id, count=$taxon_id_count{$taxon_id}\n" if $debug;
             last
         }
     }
-    print "estimate_taxon returing $approximate_taxon_id\n" if $debug;
+    print STDERR "estimate_taxon returing $approximate_taxon_id\n" if $debug;
     return ($approximate_taxon_id);
 }
 
