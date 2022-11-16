@@ -308,6 +308,9 @@ elsif ($opt->output_format eq 'newick') {
         print STDERR F $newick_data;
         close F;
     }
+    else {
+        print STDOUT $newick_data;
+    }
 }
 elsif ($opt->output_format eq 'json') {
     # need to verify or retrieve taxon_id, taxon_name, taxon_rank
