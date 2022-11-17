@@ -60,8 +60,8 @@ my($opt, $usage) = P3Utils::script_opts('xxx',
                 ['midpoint|m', 'Tree will be rooted in the middle of the longest path.'],
                 ['quartet|q=s', 'Four* tip labels, comma-separated. Tree will be rooted below first node subtending any two.'],
                 ['outfile|o=s', 'Output filename (optional).'],
-                ['output_format=s', 'Output format [svg|phyloxml|newick]', {default=> 'svg'}],
-                ['overwrite|f', 'Overwrite existing files if any.'],
+                ['output_format|f=s', 'Output format [svg|phyloxml|newick]', {default=> 'newick'}],
+                ['overwrite', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
                 ['name=s', 'Name for tree.'],
                 ['description=s', 'Description of tree.'],
@@ -84,7 +84,7 @@ if ($debug) {
     Phylo_Tree::set_debug($debug); 
     Phylo_Node::set_debug($debug); 
 }
-
+print STDERR "opt->infile = ". $opt->infile . "\n" if $debug;
 my $newickString = '';
 my $newickFile = $opt->infile;
 my $original_wd = getcwd();
@@ -274,6 +274,7 @@ if ($opt->quartet) {
     $tree_file_base .= "_quarted_rooted" if $tree_file_base;
 }
 
+print STDERR "tree_file_base = $tree_file_base\n" if $debug;
 my $output_file;
 if ($opt->output_format eq 'svg') {
     my $svg_data = $tree->write_svg();
@@ -292,7 +293,7 @@ elsif ($opt->output_format eq 'phyloxml') {
     if ($tree_file_base) { # if data was from a file, write it to a file
         $output_file = $tree_file_base . ".phyloxml";
         open F, ">$output_file";
-        print STDERR F $data;
+        print F $data;
         close F;
     }
 }
@@ -305,7 +306,7 @@ elsif ($opt->output_format eq 'newick') {
             exit(0);
         }
         open F, ">$output_file";
-        print STDERR F $newick_data;
+        print F $newick_data;
         close F;
     }
     else {
@@ -345,11 +346,11 @@ elsif ($opt->output_format eq 'json') {
         print STDERR "results: ", join("\n", @stdout), "\n" if $debug;
     }
     
+    print STDERR "now call write_json($taxon_name, $taxon_rank)\n" if $debug;
     my $data = $tree->write_json($taxon_name, $taxon_rank);
     if ($tree_file_base) {
         $output_file = $tree_file_base . ".json";
         open F, ">$output_file";
-        print STDERR "now call write_json($taxon_name, $taxon_rank)\n" if $debug;
         print F $data;
         close F;
     }

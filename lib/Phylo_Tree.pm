@@ -231,8 +231,6 @@ sub root_below_node {
     print STDERR "root_below_node $node_above_root, stem=$stem\n" if $debug;
     $stem = $node_above_root->{_branch_length}/2 unless $stem;
     my $stem_remainder = $node_above_root->{_branch_length} - $stem;
-    my @path_to_root;
-    my $path_node = undef;
     if (0 and $debug) {
         print "Verify order of interior nodes:\n";
         my %visited;
@@ -247,28 +245,24 @@ sub root_below_node {
             $visited{$int_node} = 2;
         }
         print "Done verifying.\n";
-        exit(1);
     }
+    my @path_to_root;
+    my $path_node = $node_above_root;
     for my $int_node (reverse @{$self->{_interior_nodes}}) {
         # take advantage of interior node list being partially ordered, deeper nodes at beginning of list
-        if (not $path_node) {
-            if ($int_node == $node_above_root) {
+        for my $child (@{$int_node->{_children}}) {
+            if ($child == $path_node) {
+                push @path_to_root, $int_node;
                 $path_node = $int_node;
-            }
-        }
-        else {
-            for my $child (@{$int_node->{_children}}) {
-                if ($child == $path_node) {
-                    push @path_to_root, $int_node;
-                    $path_node = $int_node;
-                    last;
-                }
+                last;
             }
         }
     }
     print "path_to_root: ", @path_to_root, "\n" if $debug;
-    for my $node (@path_to_root) {
-        $node->describe();
+    if ($debug) {
+        for my $node (@path_to_root) {
+            $node->describe();
+        }
     }
                     
 
