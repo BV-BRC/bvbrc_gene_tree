@@ -42,8 +42,10 @@ Comma separated list of genome-level fields requested for annotating tips.
 use strict;
 use P3DataAPI;
 use P3Utils;
-use Phylo_Tree; # should be in lib directory
 use URI::Escape;
+use Cwd;
+use File::Temp;
+use Phylo_Tree; # should be in lib directory
 
 #$| = 1;
 # Get the command-line options.
@@ -54,8 +56,11 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['provenance|p=s', 'Provenance of annotation. (default: BVBRC)', { default => 'BVBRC' }],
                 ['featurefields|f=s', 'Comma-separated list of feature fields to annotate each tree tip.', {default => 'product,accession'}],
                 ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'species,strain,geographic_group,isolation_country,host_group,host_common_name,collection_year,genus,mlst'}],
+                ['output_name=s', 'Output filename (will have ".phyloxml" appended if needed. Defaults to input-base + field list +.phyoxml'],
                 ['overwrite|o', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
+                ['name=s', 'Name for tree in phyloxml.'],
+                ['description=s', 'Description of tree in phyloxml.'],
         );
 
 # Check the parameters.
@@ -80,11 +85,16 @@ if ($debug) {
     print STDERR "args = ", join("\n", @ARGV), "\n";
 }
 
+my $tmpdir = File::Temp->newdir( "/tmp/TreeAnnotation_XXXXX", CLEANUP => !$debug );
+system("chmod", "755", "$tmpdir");
+print STDERR "created temp dir: $tmpdir, cleanup = ", !$debug, "\n" if $debug;
+my $original_wd = getcwd();
 my $workspace_dir;
 my @fields = split("/", $newickFile);
 if (scalar @fields > 2 and $fields[1] =~ '@') {
     print STDERR "looking for $newickFile in user workspace\n" if $opt->verbose;
     # probably a user workspace path
+    chdir($tmpdir); # do all work in temporary directory
     my ($user, $brc) = split('@', $fields[1]);
     if ($brc and $brc =~ /patricbrc\.org|bvbrc/) {
         my $workspace_newick = $newickFile;
@@ -105,7 +115,8 @@ if (scalar @fields > 2 and $fields[1] =~ '@') {
         my @command = ('p3-cp');
         push @command, '-f' if $opt->overwrite;
         push @command, "ws:" . $workspace_newick;
-        print STDERR "commnd to copy from workspace:\n@command\n" if $opt->verbose;
+        push @command, '.';
+        print STDERR "command to copy tree from workspace:\n@command\n" if $opt->verbose;
         my $rc = system(@command);
 	die "Failure $rc running @command" unless $rc == 0;
         unless (-f $newickFile) {
@@ -118,9 +129,18 @@ unless (-f $newickFile) {
     exit(1);
 }
 
-my $link = $opt->databaselink;
-my $tree = new Phylo_Tree($newickFile, $link);
+my $tree = new Phylo_Tree($newickFile);
 #print STDERR "read tree. Newick is\n", $tree->write_newick(), "\n" if $debug;
+
+if ($opt->databaselink) {
+    $tree->set_type($opt->databaselink);
+}
+if ($opt->name) {
+    $tree->set_name($opt->name);
+}
+if ($opt->description) {
+    $tree->set_description($opt->description);
+}
 
 my %meta_column; #first key is column (field name), second key is row (tip ID)
 if ($opt->annotationtsv) {
@@ -154,9 +174,10 @@ if ($opt->annotationtsv) {
 if ($opt->databaselink) {
     # Get access to PATRIC.
     my $api = P3DataAPI->new();
-    my $treeIds = $tree->get_tip_ids();
+    my $treeIds = $tree->get_tip_names();
     my $num_tips = scalar @$treeIds;
     my $limit = "limit($num_tips)";
+    my $link = $opt->databaselink;
     print STDERR "tree IDs are: ", join(", ", @$treeIds), "\n" if $debug;
     my @escaped_IDs = map { uri_escape $_ } @$treeIds;
     my $query = "in($link,(" . join(",",@escaped_IDs). "))";
@@ -169,11 +190,13 @@ if ($opt->databaselink) {
         my %genome_to_links;
         my ($resp, $data) = $api->submit_query('genome_feature', "$query&$select&$limit");
         for my $record (@$data) {
-            #print join("||", keys %$record), "\n" if $debug;
+            #print join("||", values %$record), "\n" if $debug;
             my $id = $record->{$link};
+            print "feature $id\n" if $debug;
             for my $key (keys %$record) {
                 next if $key eq $link;
                 if ($featureFields =~ /$key/) {
+                    print "     $key -> $record->{$key}\n" if $debug;
                     $meta_column{$key}{$id} = $record->{$key};
                 }
                 if ($key eq 'genome_id') {
@@ -190,13 +213,17 @@ if ($opt->databaselink) {
                 print STDERR "query db for genome fields:\n$query\n$select\n" if $debug;
                 my ($resp, $data) = $api->submit_query('genome', "$query&$select&$limit");
                 for my $record (@$data) {
-                    print join("||", keys %$record), "\n" if $debug;
+                    #print join("||", keys %$record), "\n" if $debug;
                     my $genome_id = $record->{genome_id};
+                    print "genome $genome_id\n" if $debug;
                     for my $key (keys %$record) {
                         if ($genomeFields =~ /$key/) {
+                            print "  field $key: " if $debug;
                             for my $tree_id (@{$genome_to_links{$genome_id}}) {
                                 $meta_column{$key}{$tree_id} = $record->{$key};
+                                print " $tree_id => $record->{$key} " if $debug;
                             }
+                            print "\n" if $debug;
                         }
                     }
                 }
@@ -221,19 +248,31 @@ if ($opt->databaselink) {
             }
         }
     }
+    for my $field (keys %meta_column) {
+        $tree->add_tip_annotation($field, $meta_column{$field});
+    }
 }
 
-for my $column (sort keys %meta_column) {
+if (0) {
+    for my $column (sort keys %meta_column) {
     print "tree->add_phyloxml_tip_properties for $column\n" if $debug;
     my $provenance = "BVBRC";
     $provenance = $opt->provenance if $opt->provenance;
     $provenance = $meta_column{$column}{provenance} if exists $meta_column{$column}{provenance};
     $tree->add_tip_phyloxml_properties($meta_column{$column}, $column, $provenance);
-}
+}}
 
 my $phyloxml_file = $newickFile;
 $phyloxml_file =~ s/\.nwk$//;
 $phyloxml_file =~ s/\.tree$//;
+if ($opt->databaselink) { # elaborate output file name with database fields added
+    my $field_string = $opt->genomefields;
+    if ($opt->databaselink ne 'genome_id') {
+        $field_string .= "_" . $opt->featurefields;
+    }
+    $field_string =~ tr/,/_/;
+    $phyloxml_file .= "_$field_string";
+}
 $phyloxml_file .= ".phyloxml";
 open F, ">$phyloxml_file";
 my $phyloxml_data = $tree->write_phyloXML();
@@ -248,4 +287,5 @@ if ($workspace_dir) {
     print STDERR "commnd to copy back to workspace:\n@command\n" if $opt->verbose;
     my $rc = system(@command);
     die "Failure $rc running @command" unless $rc == 0;
+    chdir($original_wd); # change back to the starting working directory
 }

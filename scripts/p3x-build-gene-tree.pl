@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 =head1 Generate phylogenetic tree based on multiple sequence alignment in fasta format.
 
-    p3x-infer-gene-tree.pl [options] msaFile
+    p3x-build-gene-tree.pl [options] msaFile
 
 This script runs a phylogenetic tree-building program on the input alignment.
 Programs include RAxML, PhyML, and FastTree
