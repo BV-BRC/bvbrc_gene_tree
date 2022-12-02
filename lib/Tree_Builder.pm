@@ -201,6 +201,7 @@ sub build_raxml_tree {
     
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
     $self->add_analysis_comment($comment) if $comment;
+    print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;
     my ($out, $err) = run_cmd(\@cmd);
     $self->add_analysis_out_err($out, $err);
     $self->add_analysis_tree("RAxML_bestTree.$output_base");
@@ -221,6 +222,7 @@ sub build_raxml_tree {
         push @cmd, ("-n", $bootstrap_name);
         push @cmd, ("-b",  "12345", "-#", $bootstrap, "-p", "12345");
         $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
+        print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;
         ($out, $err) = run_cmd(\@cmd);
         $self->add_analysis_out_err($out, $err);
         $self->add_analysis_tree($support_trees);
@@ -239,6 +241,7 @@ sub build_raxml_tree {
     push @cmd, ("-n", $tree_with_support_name);
     push @cmd, ("-T", $self->{_parallel}, "-p", "12345");
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
+    print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;
     ($out, $err) = run_cmd(\@cmd);
     $self->add_analysis_out_err($out, $err);
     move("RAxML_bipartitions.$tree_with_support_name", "$self->{_output_dir}/$tree_with_support_name");
@@ -297,6 +300,7 @@ sub build_phyml_tree {
     
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
     $self->add_analysis_comment($comment);
+    print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;
     my ($out, $err) = run_cmd(\@cmd);
     $self->add_analysis_out_err($out, $err);
     move($self->{_phylip_file}."_phyml_tree.txt", "$self->{_output_dir}/$treeFile");# copy final tree to original working directory
@@ -327,6 +331,7 @@ sub build_fasttree {
     my $analysis_descriptor = "Build ML tree using FastTree"; 
     my $tree_file_name;
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
+    print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;
     my ($out, $err) = run_cmd(\@cmd);
     $self->add_analysis_out_err($out, $err);
     $self->add_analysis_tree($treeFile);
@@ -336,11 +341,13 @@ sub build_fasttree {
         # use raxml to generate 100 data matrices
         # use fasttree to analyze them
         # use compareToBootstrap to count the per-branch support (as proportion)
-        my $model = ("GTRCAT", "PROTCATLG")[$self->{_alphabet} =~ /protein/i];
+        my $model = "GTRCAT";
+        $model =  "PROTCATLG" if $self->{_alphabet} =~ /protein/i;
         print STDERR "alphabet = $self->{_alphabet} , model = $model\n" if $debug;
         @cmd = ('raxmlHPC-PTHREADS-SSE3',  '-f', 'j', '-b', '123', '-#', $bootstrap, '-s', $self->{_alignment_file}, '-n', 'boot_matrix', '-m', $model);
         $analysis_descriptor = "Generate bootstrap matrices";
         $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
+        print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;
         my ($out, $err) = run_cmd(\@cmd);
         $self->add_analysis_out_err($out, $err);
         die "raxml failed to produce BS1" unless -f "$self->{_alignment_file}.BS1";
@@ -363,6 +370,7 @@ sub build_fasttree {
         $analysis_descriptor = "Generate trees for each bootstrapped data matrix";
         $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
         print STDERR $analysis_descriptor, "\n", join(" ", @cmd), "\n" if $debug;
+        print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;
         ($out, $err) = run_cmd(\@cmd);
         $self->add_analysis_out_err($out, $err);
         open CAT, ">>$logFile";
@@ -375,6 +383,8 @@ sub build_fasttree {
         @cmd = ("CompareToBootstrap", $treeFile, $multi_tree_file);
         $analysis_descriptor = "Map support onto best tree";
         $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
+        print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;
+        print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;
         ($out, $err) = run_cmd(\@cmd);
         $self->add_analysis_out_err($out, $err);
         open F, ">$tree_with_support";
