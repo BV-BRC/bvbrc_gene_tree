@@ -484,7 +484,8 @@ sub build_tree {
         print STDERR "execute system call: (as array):\n" . join(' ', @command), "\n";
         system(@command);
         my $phyloxml_file = $treeFile;
-        $phyloxml_file =~ s/.nwk/.phyloxml/;
+        $phyloxml_file =~ s/.nwk/*phyloxml/;
+        $phyloxml_file = glob($phyloxml_file);
         push @outputs, [$phyloxml_file, "phyloxml"];
     }
     
