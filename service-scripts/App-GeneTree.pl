@@ -483,9 +483,13 @@ sub build_tree {
         my @command = ('p3x-newick-to-phyloxml', '-l', $database_link, '-g', join(',',@genome_metadata_fields), '-f', join(',', @feature_metadata_fields), $treeFile);
         print STDERR "execute system call: (as array):\n" . join(' ', @command), "\n";
         system(@command);
-        my $phyloxml_file = $treeFile;
-        $phyloxml_file =~ s/.nwk/*phyloxml/;
-        $phyloxml_file = glob($phyloxml_file);
+
+        my $phyloxml_file = undef;
+        opendir my $dir_handle, '.' or die "Couldn't open dir '.': $!";
+        my @files = readdir $dir_handle;
+        for my $file (@files) {
+            $phyloxml_file = $file if ($file =~ /.phyloxml$/);
+        }
         push @outputs, [$phyloxml_file, "phyloxml"];
     }
     
@@ -839,19 +843,23 @@ sub retrieve_feature_metadata_by_feature_id {
 sub get_genome_metadata {
     my ($genome_ids, $fields) = @_;
     print STDERR "in get_genome_metadata: genome ids = ", join(", ", @$genome_ids), "\n" if $debug;
-    return \() unless scalar(@$genome_ids);
+    my %genome_metadata = ();
+    #return \() unless scalar(@$genome_ids);
     $fields = ['species'] unless $fields;
     my $select_string = "select(" . join(",", 'genome_id', @$fields) . ")"; 
-    my $escaped_ids = join(",", @$genome_ids);
-    my $url = "$data_url/genome/?in(genome_id,($escaped_ids))&$select_string";
-    print STDERR "query=$url\n";
-    my $resp = curl_json($url);
-    my %genome_metadata = ();
-    for my $member (@$resp) {
-        #print STDERR "member: ", join(", ", sort(keys %$member)), "\n";
-        my $genome_id = $member->{genome_id};
-        for my $field (@$fields) {
-            $genome_metadata{$genome_id}{$field} = $member->{$field} unless $field eq 'genome_id';
+    my @genome_ids_copy = @$genome_ids; # copy ids so we don't delete them with splice
+    while (@genome_ids_copy) {
+        my @id_sample = splice(@genome_ids_copy, 0, 20);
+        my $escaped_ids = join(",", @id_sample);
+        my $url = "$data_url/genome/?in(genome_id,($escaped_ids))&$select_string";
+        print STDERR "query=$url\n";
+        my $resp = curl_json($url);
+        for my $member (@$resp) {
+            #print STDERR "member: ", join(", ", sort(keys %$member)), "\n";
+            my $genome_id = $member->{genome_id};
+            for my $field (@$fields) {
+                $genome_metadata{$genome_id}{$field} = $member->{$field} unless $field eq 'genome_id';
+            }
         }
     }
     return \%genome_metadata
