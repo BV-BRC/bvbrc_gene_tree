@@ -56,7 +56,8 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['provenance|p=s', 'Provenance of annotation. (default: BVBRC)', { default => 'BVBRC' }],
                 ['featurefields|f=s', 'Comma-separated list of feature fields to annotate each tree tip.', {default => 'product,accession'}],
                 ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'species,strain,geographic_group,isolation_country,host_group,host_common_name,collection_year,genus,mlst'}],
-                ['output_name=s', 'Output filename (will have ".phyloxml" appended if needed. Defaults to input-base + field list +.phyoxml'],
+                ['output_name=s', 'Output filename.'],
+                ['name_with_all_fields', 'Construct output file to include all fields.'],
                 ['overwrite|o', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
                 ['name=s', 'Name for tree in phyloxml.'],
@@ -262,16 +263,22 @@ if (0) {
     $tree->add_tip_phyloxml_properties($meta_column{$column}, $column, $provenance);
 }}
 
-my $phyloxml_file = $newickFile;
-$phyloxml_file =~ s/\.nwk$//;
-$phyloxml_file =~ s/\.tree$//;
-if ($opt->databaselink) { # elaborate output file name with database fields added
-    my $field_string = $opt->genomefields;
-    if ($opt->databaselink ne 'genome_id') {
-        $field_string .= "_" . $opt->featurefields;
+my $phyloxml_file = 'output.phyloxml';
+if ($opt->output_name) {
+    $phyloxml_file = $opt->ouptut_name;
+}
+else {
+    my $phyloxml_file = $newickFile;
+    $phyloxml_file =~ s/\.nwk$//;
+    $phyloxml_file =~ s/\.tree$//;
+    if ($opt->name_with_all_fields and $opt->databaselink) { # elaborate output file name with database fields added
+        my $field_string = $opt->genomefields;
+        if ($opt->databaselink ne 'genome_id') {
+            $field_string .= "_" . $opt->featurefields;
+        }
+        $field_string =~ tr/,/_/;
+        $phyloxml_file .= "_$field_string";
     }
-    $field_string =~ tr/,/_/;
-    $phyloxml_file .= "_$field_string";
 }
 $phyloxml_file .= ".phyloxml";
 open F, ">$phyloxml_file";
