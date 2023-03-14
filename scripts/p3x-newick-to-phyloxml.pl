@@ -170,6 +170,9 @@ if ($opt->annotationtsv) {
         }
         print STDERR "\n" if $debug;
     }
+    for my $field (keys %meta_column) {
+        $tree->add_tip_annotation($field, $meta_column{$field});
+    }
 }
 
 if ($opt->databaselink) {
@@ -266,9 +269,12 @@ if (0) {
 my $phyloxml_file = 'output.phyloxml';
 if ($opt->output_name) {
     $phyloxml_file = $opt->ouptut_name;
+    if ($phyloxml_file !~ /.phyloxml$/) {
+        $phyloxml_file .= ".phyloxml";
+    }
 }
 else {
-    my $phyloxml_file = $newickFile;
+    $phyloxml_file = $newickFile;
     $phyloxml_file =~ s/\.nwk$//;
     $phyloxml_file =~ s/\.tree$//;
     if ($opt->name_with_all_fields and $opt->databaselink) { # elaborate output file name with database fields added
@@ -279,8 +285,8 @@ else {
         $field_string =~ tr/,/_/;
         $phyloxml_file .= "_$field_string";
     }
+    $phyloxml_file .= ".phyloxml";
 }
-$phyloxml_file .= ".phyloxml";
 open F, ">$phyloxml_file";
 my $phyloxml_data = $tree->write_phyloXML();
 print F $phyloxml_data;
