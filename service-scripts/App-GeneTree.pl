@@ -23,7 +23,7 @@ our $global_token;
 our $shock_cutoff = 10_000;
 my $max_genome_length = 250_000; #most/all single-sequence viruses are less than this
 my @default_genome_metadata_fields = (
-        "genome_name", "geographic_group", "host_group", "collection_year");
+        "genome_name", "strain", "genbank_accessions", "subtype", "lineage", "clade", "h1_clade_global", "h1_clade_us", "h5_clade", "host_group", "host_common_name", "host_scientific_name", "collection_year", "geographic_group", "isolation_country", "state_province");
 my @default_feature_metadata_fields = ("product", "accession", "patric_id");
 
 our $debug = 0;

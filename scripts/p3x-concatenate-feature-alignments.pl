@@ -1,4 +1,17 @@
 use strict;
+use P3Utils;
+
+my($opt, $usage) = P3Utils::script_opts('alignments',
+                ['trimsoftmask|t', 'Trim any sequence in lowercase'],
+                ['verbose|debug|v', 'Write status messages to STDERR.'],
+            );
+if ($opt->verbose) {
+    print "args=", join(", ", @ARGV), "\n";
+    print "opt = %$opt\n";
+    for my $key (keys %$opt) {
+        print "\t$key\t$opt->{$key}\n";
+    }
+}
 
 my @families = @ARGV;
 
@@ -17,8 +30,12 @@ for my $family_file (@families) {
     while (<$f>) {
         if (/^>(\S+)/) {
             $feature = $1;
-            $feature =~ /fig\|(\d+\.\d+)/ or die "cannot parse feature_id $feature\n";
-            my $genome_id = $1;
+            my $genome_id = 1;
+            if ($feature =~ /fig\|(\d+\.\d+)/ or $feature =~ /^(\d+\.\d+)$/ or /::(\d+\.\d+)/)
+            {
+                $genome_id = $1;
+            }
+            else { die "cannot parse genome_id from $feature"}
             $genomes{$genome_id}++;
             $family_genome_count{$family}{$genome_id}++;
             push @{$family_genome_features{$family}{$genome_id}}, $feature;
@@ -26,6 +43,9 @@ for my $family_file (@families) {
         }
         else {
             chomp;
+            if ($opt->trimsoftmask) {
+                s/[a-z]//g;
+            }
             $feature_seq{$feature} .= $_;
         }
     }
