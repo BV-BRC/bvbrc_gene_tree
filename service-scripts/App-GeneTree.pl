@@ -161,6 +161,7 @@ sub retrieve_sequence_data {
     my ($app, $params, $api) = @_;
     my ($step_comments, $step_info) = start_step("Gather Sequence Data");
     my @master_seq_list; # concatenate seq_list for each data source, return this
+    my %master_seq_ids; # control that sequence IDs are unique (modify user fast IDS, drop repeat feature or genomes)
     my $comment;
     my ($aligned_state, $any_in_memory) = (0, 0);
     $aligned_state = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{type} =~ /Aligned/i); 
@@ -193,7 +194,13 @@ sub retrieve_sequence_data {
                         $user_identifier =~ tr/:()[]/_____/; # replace any bad characters with underscores
                         print STDERR "replacing identifier $seq_item->{original_id} with $user_identifier\n";
                     }
+                    if (exists $master_seq_ids{$user_identifier}) {
+                        while (exists $master_seq_ids{$user_identifier}) {
+                            $user_identifier .= "'"; # make unique by appending apostrophe
+                        }
+                    }
                     $seq_item->{id} = $user_identifier;
+                    $master_seq_ids{$user_identifier} = 1; #remember this identifier and protect if from collisions
                     if ($user_identifier =~ /^fig\|\d+\.\d+\..{3}\.\d+$/) {
                         print "try user identifier as patric_id: $user_identifier\n" if $debug;
                         $seq_item->{database_link} = 'patric_id';
@@ -244,11 +251,17 @@ sub retrieve_sequence_data {
                 }
             }
             for my $record (@$seq_list) {
-                push @original_sequence_ids, $record->{feature_id};
-                $record->{id} = $record->{feature_id};
-                $record->{database_link} = 'feature_id';
+                if (exists $master_seq_ids{$record->{feature_id}}) { # block repeats of same feature
+                    print STDERR "got repeat of feature $record->{feature_id}, skipping.\n";
+                }
+                else {
+                    push @original_sequence_ids, $record->{feature_id};
+                    $record->{id} = $record->{feature_id};
+                    $record->{database_link} = 'feature_id';
+                    $master_seq_ids{$record->{feature_id}} = 1;
+                    push @master_seq_list, $record;
+                }
             }
-            push @master_seq_list, @$seq_list;
             $num_seqs = scalar @$seq_list;
             $comment = "number of elements = $num_seqs";
             push @{$step_comments}, $comment;
@@ -264,12 +277,20 @@ sub retrieve_sequence_data {
             $comment = "retrieving sequences for genome group $genome_group\n";
             print STDERR "$comment\n";
             push @{$step_comments}, $comment;
-            my $genome_ids = $api->retrieve_patric_ids_from_genome_group($genome_group);
-            for my $id (@$genome_ids) {
-                print STDERR "$id\n";
+            my $temp_genome_ids = $api->retrieve_patric_ids_from_genome_group($genome_group);
+            my @genome_ids; # limit to non-redundant entries
+            for my $id (@$temp_genome_ids) {
+                if (exists $master_seq_ids{$id}) {
+                    print STDERR " duplicate genome ID: $id, skipping.\n";
+                }
+                else {
+                    print STDERR " genome $id\n";
+                    push @genome_ids, $id;
+                }
+
             }
             my @genome_validation_fields, ('genome_id', 'contigs', 'superkingdom', 'genome_length');
-            my @genome_validation_data = $api->retrieve_genome_metadata($genome_ids, \@genome_validation_fields);
+            my @genome_validation_data = $api->retrieve_genome_metadata(\@genome_ids, \@genome_validation_fields);
             print STDERR "examine genome metadata to test for single-sequence virus under $max_genome_length:\n";
             print STDERR join("\t", @genome_validation_fields), "\n";
             for my $info (@genome_validation_data) {
@@ -295,8 +316,8 @@ sub retrieve_sequence_data {
                 }
             }
             print STDERR "All genomes are viruses, all have a single sequence, all are under $max_genome_length bases.\n";
-            push @original_sequence_ids, @$genome_ids;
-            $num_seqs = scalar @$genome_ids;
+            push @original_sequence_ids, @genome_ids;
+            $num_seqs = scalar @genome_ids;
             for my $info (@genome_validation_data) {
                 my $genome_id = $info->{genome_id};
                 my ($resp, $data) = $api->submit_query('genome_sequence', "eq(genome_id,$genome_id)", "sequence");
@@ -315,9 +336,18 @@ sub retrieve_sequence_data {
             $comment = "retrieving sequences for feature ids";
             $comment .= ", this functionality in testing";
             push @{$step_comments}, $comment;
-            my $feature_ids = $sequence_source->{feature_ids};
-            print STDERR "\tfeature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
-            my $query="in(feature_id,(" . join(',', @$feature_ids) . "))";
+            my @feature_ids;
+            for my $feature_id (@{$sequence_source->{feature_ids}}) {
+                if (exists $master_seq_ids{$feature_id}) { # block repeats of same feature
+                    print STDERR "got repeat of feature $feature_id, skipping.\n";
+                }
+                else {
+                    push @feature_ids, $feature_id;
+                    $master_seq_ids{$feature_id} = 1;
+                }
+            }
+            print STDERR "\tfeature_ids = ", join(", ", @feature_ids), "\n" if $debug;
+            my $query="in(feature_id,(" . join(',', @feature_ids) . "))";
             my ($req, $seq_list) = $api->submit_query('genome_feature', $query);
             my @md5_list;
             my $md5_type = ('aa_sequence_md5', 'na_sequence_md5')[$params->{alphabet} eq 'DNA'];
