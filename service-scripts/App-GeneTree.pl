@@ -196,7 +196,7 @@ sub retrieve_sequence_data {
                     }
                     if (exists $master_seq_ids{$user_identifier}) {
                         while (exists $master_seq_ids{$user_identifier}) {
-                            $user_identifier .= "'"; # make unique by appending apostrophe
+                            $user_identifier .= "_d" # make unique by appending tag
                         }
                     }
                     $seq_item->{id} = $user_identifier;
