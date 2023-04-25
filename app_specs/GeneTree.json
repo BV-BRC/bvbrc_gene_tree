@@ -52,7 +52,7 @@
             "id": "bootstrap",
             "label": "Perform boostrapping",
             "required": 0,
-            "type": "integer",
+            "type": "integer"
         },
         {
             "id": "recipe",
@@ -62,6 +62,15 @@
             "desc": "Recipe used for FeatureTree analysis",
             "type": "enum",
             "enum": ["RAxML", "PhyML", "FastTree"]
+        },
+        {
+            "id": "tree_type",
+            "label": "Type of tree as requested by the user",
+            "required": 0,
+            "allow_multiple": 0,
+            "desc": "Fields to be retrieved for each gene.",
+            "type": "enum",
+            "enum": ["viral_genome", "gene"]
         },
         {
             "id": "feature_metadata_fields",
