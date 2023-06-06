@@ -30,12 +30,17 @@ for my $family_file (@families) {
     while (<$f>) {
         if (/^>(\S+)/) {
             $feature = $1;
-            my $genome_id = 1;
+            my $genome_id = $1;
             if ($feature =~ /fig\|(\d+\.\d+)/ or $feature =~ /^(\d+\.\d+)$/ or /::(\d+\.\d+)/)
             {
                 $genome_id = $1;
             }
-            else { die "cannot parse genome_id from $feature"}
+            else {
+                />\S+\s+(\S+)/;
+                $feature = $genome_id . "_$1"; 
+                print "cannot parse genome_id, using $genome_id : $feature";
+                
+            }
             $genomes{$genome_id}++;
             $family_genome_count{$family}{$genome_id}++;
             push @{$family_genome_features{$family}{$genome_id}}, $feature;

@@ -15,7 +15,7 @@ sub set_debug {
 }
 
 sub new {
-    my ($class, $fasta_alignment, $alphabet) = @_;
+    my ($class, $fasta_alignment, $alphabet, $threads) = @_;
     if ($debug) {
         print(STDERR "in Tree_Builder\n");
         print(STDERR " class = $class\n");
@@ -25,20 +25,15 @@ sub new {
     bless $self, $class;
     my $alignment_abs_path = File::Spec->rel2abs( $fasta_alignment );
     $self->{_alignment_file} = $fasta_alignment;
+    $self->{_alphabet} = $alphabet;
+    $self->{_parallel} = $threads ? $threads : 1;
     my ($fasta_name, $fasta_dir, $fasta_extension) =  fileparse($alignment_abs_path, qr/\.[^.]*/);
     $self->{_output_base} = $fasta_name;
     $self->{_alignment_name} = $fasta_name . $fasta_extension;
     print STDERR "fileparse on $fasta_alignment yields $fasta_dir, $fasta_name, $fasta_extension\n" if $debug;
     $alphabet = autodetect_alphabet($fasta_alignment) unless $alphabet;
-    $self->{_alphabet} = $alphabet;
     $self->{_model} = ('GTR', 'LG')[$alphabet eq 'protein']; #default to GTR for DNA and LG for proteins, can change
     $self->{_analysis_steps} = ();
-    if (exists $ENV{P3_ALLOCATED_CPU}) {
-        $self->{_parallel} = $ENV{P3_ALLOCATED_CPU};
-    }
-    else {
-        $self->{_parallel} = 2;
-    }
     $self->{_tmpdir} = File::Temp->newdir( "/tmp/Tree_Builder_XXXXX", CLEANUP => !$debug );
     system("chmod", "755", $self->{_tmpdir});
     print STDERR "created temp dir: $self->{_tmpdir}, cleanup = ", !$debug, "\n";
@@ -178,7 +173,7 @@ sub build_raxml_tree {
     }
     #$self->{_model} = $model;
 
-    my $analysis_descriptor = "Build maximum likelihood tree";
+    my $analysis_descriptor = "Build maximum-likelihood tree using RAxML";
     my @cmd = ("raxmlHPC-PTHREADS-SSE3");
     push @cmd, ("-T", $self->{_parallel});
     push @cmd, ("-p", "12345");
@@ -279,7 +274,7 @@ sub build_phyml_tree {
     }
 
     my $treeFile = $output_base."_phyml_tree.nwk";
-    my $analysis_descriptor = "Build ML tree";
+    my $analysis_descriptor = "Build maximum-likelihood tree using PhyML";
     my @cmd = ("phyml");
     push @cmd, ("-i", $self->{_phylip_file});
     push @cmd, ("-d", $datatype);
@@ -328,7 +323,7 @@ sub build_fasttree {
     } # else defaults to JTT for proteins
 
     push @cmd, $self->{_alignment_file};
-    my $analysis_descriptor = "Build ML tree using FastTree"; 
+    my $analysis_descriptor = "Build maximum-likelihood tree using FastTree"; 
     my $tree_file_name;
     $self->add_analysis_step($analysis_descriptor, join(" ", @cmd));
     print STDOUT "run command: ". join(" ", @cmd)."\n" if $debug;

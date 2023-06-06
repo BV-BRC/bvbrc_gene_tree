@@ -99,13 +99,27 @@ sub add_analysis_step { #allow adding a step recorded by Tree_Builder object
 }
 
 sub write_report {
-    my ($output_file, $tree_graphic_file) = @_;
+    my ($output_file, $title, $tree_graphic_file) = @_;
     print STDERR "write_report()\n";
     open F, ">$output_file";
-    print F "<HTML>\n<h1>Gene Tree Output</h1>\n";
+    print F "<HTML>\n<h1>$title</h1>\n";
     if (-e $tree_graphic_file) {
+        my $element_name = 'tree_plot';
+        print F "<script>\nfunction toggle_$element_name() {
+          var x = document.getElementById(\"$element_name\");
+            if (x.style.display == \"none\") {
+                  x.style.display = \"block\";
+              } else {
+                  x.style.display = \"none\";
+              }
+          }\n</script>\n";
+        print STDERR "<script>\nfunction toggle_$element_name() \n" if $debug;
+        print F "FigTree Plot: <button onclick=\"toggle_$element_name()\">Show/Hide</button>\n";
+        print F "<div id=\"$element_name\" style=\"display:block; background:#ffffff\" \n";
+        print F "    onclick=\"toggle_$element_name()\">\n";
         my $svg_text = read_file($tree_graphic_file);
         print F $svg_text, "\n\n";
+        print F "</div>\n";
     }
     else { print STDERR "Tree graphic file not found: $tree_graphic_file\n"; }
     print F "<h2>Analysis Steps</h2>\n";
@@ -161,11 +175,13 @@ sub retrieve_sequence_data {
     my ($app, $params, $api) = @_;
     my ($step_comments, $step_info) = start_step("Gather Sequence Data");
     my @master_seq_list; # concatenate seq_list for each data source, return this
+    my %master_seq_ids; # control that sequence IDs are unique (modify user fast IDS, drop repeat feature or genomes)
     my $comment;
     my ($aligned_state, $any_in_memory) = (0, 0);
     $aligned_state = (scalar(@{$params->{sequences}}) == 1 and $params->{sequences}->[0]->{type} =~ /Aligned/i); 
     print STDERR "Number of sequence data sets = ", scalar(@{$params->{sequences}}), "\n";
     my $total_seqs = 0;
+    my @empty_sequences; # keep track of entries lacking sequence data
     for my $sequence_source (@{$params->{sequences}}) {
         print STDERR "data item: $sequence_source->{type}, $sequence_source->{filename}\n";
         push @{$step_comments}, "reading $sequence_source->{type} $sequence_source->{filename}";
@@ -193,7 +209,13 @@ sub retrieve_sequence_data {
                         $user_identifier =~ tr/:()[]/_____/; # replace any bad characters with underscores
                         print STDERR "replacing identifier $seq_item->{original_id} with $user_identifier\n";
                     }
+                    if (exists $master_seq_ids{$user_identifier}) {
+                        while (exists $master_seq_ids{$user_identifier}) {
+                            $user_identifier .= "_d" # make unique by appending tag
+                        }
+                    }
                     $seq_item->{id} = $user_identifier;
+                    $master_seq_ids{$user_identifier} = 1; #remember this identifier and protect if from collisions
                     if ($user_identifier =~ /^fig\|\d+\.\d+\..{3}\.\d+$/) {
                         print "try user identifier as patric_id: $user_identifier\n" if $debug;
                         $seq_item->{database_link} = 'patric_id';
@@ -218,7 +240,25 @@ sub retrieve_sequence_data {
                 }
             }
             close F;
-            push @master_seq_list, @seq_list;
+            # save non-empty sequences to master seq list
+            my $num_empty = 0;
+            for my $item (@seq_list) {
+                if (length($item->{sequence}) > 0) {
+                    push @master_seq_list, $item;
+                }
+                else {
+                    push @empty_sequences, $item->{id};
+                    $num_empty++;
+                }
+            }
+            $comment = "number of sequence entries: $num_seqs";
+            push @{$step_comments}, $comment;
+            print STDERR $comment, "\n";
+            if ($num_empty) {
+                $comment = "number lacking sequence data: $num_empty";
+                push @{$step_comments}, $comment;
+                print STDERR $comment, "\n";
+            }
         }
         elsif ($sequence_source->{type} eq "feature_group") {
             # need to get feature sequences from database 
@@ -243,16 +283,36 @@ sub retrieve_sequence_data {
                     print STDERR "    \t$key\t$seq_list->[0]->{$key}\n";
                 }
             }
-            for my $record (@$seq_list) {
-                push @original_sequence_ids, $record->{feature_id};
-                $record->{id} = $record->{feature_id};
-                $record->{database_link} = 'feature_id';
+            my $num_empty = 0;
+            for my $item (@$seq_list) {
+                if (exists $master_seq_ids{$item->{feature_id}}) { # block repeats of same feature
+                    print STDERR "got repeat of feature $item->{feature_id}, skipping.\n";
+                }
+                else {
+                    push @original_sequence_ids, $item->{feature_id};
+                    $item->{id} = $item->{feature_id};
+                    $item->{database_link} = 'feature_id';
+                    $master_seq_ids{$item->{feature_id}} = 1;
+                    push @master_seq_list, $item;
+                }
+                # save non-empty sequences to master seq list
+                if (length($item->{sequence}) > 0) {
+                    push @master_seq_list, $item;
+                }
+                else {
+                    push @empty_sequences, $item->{id};
+                    $num_empty++;
+                }
             }
-            push @master_seq_list, @$seq_list;
             $num_seqs = scalar @$seq_list;
-            $comment = "number of elements = $num_seqs";
+            $comment = "number of sequence fetures retrieved: $num_seqs";
             push @{$step_comments}, $comment;
             print STDERR $comment, "\n";
+            if ($num_empty) {
+                $comment = "number lacking sequence data: $num_empty";
+                push @{$step_comments}, $comment;
+                print STDERR $comment, "\n";
+            }
         }
         elsif ($sequence_source->{type} eq "genome_group") {
             if (0 and scalar @{$params->{sequences}} > 1) {
@@ -264,17 +324,24 @@ sub retrieve_sequence_data {
             $comment = "retrieving sequences for genome group $genome_group\n";
             print STDERR "$comment\n";
             push @{$step_comments}, $comment;
-            my $genome_ids = $api->retrieve_patric_ids_from_genome_group($genome_group);
-            for my $id (@$genome_ids) {
-                print STDERR "$id\n";
+            my $temp_genome_ids = $api->retrieve_patric_ids_from_genome_group($genome_group);
+            my @genome_ids; # limit to non-redundant entries
+            for my $id (@$temp_genome_ids) {
+                if (exists $master_seq_ids{$id}) {
+                    print STDERR " duplicate genome ID: $id, skipping.\n";
+                }
+                else {
+                    print STDERR " genome $id\n";
+                    push @genome_ids, $id;
+                }
+
             }
             my @genome_validation_fields, ('genome_id', 'contigs', 'superkingdom', 'genome_length');
-            my @genome_validation_data = $api->retrieve_genome_metadata($genome_ids, \@genome_validation_fields);
+            my @genome_validation_data = $api->retrieve_genome_metadata(\@genome_ids, \@genome_validation_fields);
             print STDERR "examine genome metadata to test for single-sequence virus under $max_genome_length:\n";
             print STDERR join("\t", @genome_validation_fields), "\n";
             for my $info (@genome_validation_data) {
                 for my $key ('genome_id', 'contigs', 'superkingdom', 'genome_length') {
-                    #for my $key (sort(keys %$info)) {
                     print STDERR "$info->{$key}\t";
                 }
                 print STDERR "\n";
@@ -295,29 +362,52 @@ sub retrieve_sequence_data {
                 }
             }
             print STDERR "All genomes are viruses, all have a single sequence, all are under $max_genome_length bases.\n";
-            push @original_sequence_ids, @$genome_ids;
-            $num_seqs = scalar @$genome_ids;
-            for my $info (@genome_validation_data) {
-                my $genome_id = $info->{genome_id};
+            push @original_sequence_ids, @genome_ids;
+            $num_seqs = scalar @genome_ids;
+            my $num_empty = 0;
+            for my $item (@genome_validation_data) {
+                my $genome_id = $item->{genome_id};
                 my ($resp, $data) = $api->submit_query('genome_sequence', "eq(genome_id,$genome_id)", "sequence");
-                print "for $genome_id: resp = $resp\tdata=$data\tdata->[0]=$data->[0]\n" if $debug;
-                $info->{sequence} = $data->[0]->{sequence};
-                $info->{id} = $genome_id;
-                $info->{database_link} = 'genome_id';
+                #print "for $genome_id: resp = $resp\tdata=$data\tdata->[0]=$data->[0]\n" if $debug;
+                $item->{sequence} = $data->[0]->{sequence};
+                $item->{id} = $genome_id;
+                $item->{database_link} = 'genome_id';
+            # save non-empty sequences to master seq list
+                if (length($item->{sequence}) > 0) {
+                    push @master_seq_list, $item;
+                }
+                else {
+                    push @empty_sequences, $item->{id};
+                    $num_empty++;
+                }
             }
-            push @master_seq_list, @genome_validation_data;
-            $comment = "number of genomes = $num_seqs";
+            $comment = "number of genomes retrieved: $num_seqs";
             push @{$step_comments}, $comment;
             print STDERR $comment, "\n";
+            if ($num_empty) {
+                $comment = "number lacking sequence data: $num_empty";
+                push @{$step_comments}, $comment;
+                print STDERR $comment, "\n";
+            }
+
         }
         elsif ($sequence_source->{type} eq "feature_ids") {
             # need to get feature sequences from database 
             $comment = "retrieving sequences for feature ids";
             $comment .= ", this functionality in testing";
             push @{$step_comments}, $comment;
-            my $feature_ids = $sequence_source->{feature_ids};
-            print STDERR "\tfeature_ids = ", join(", ", @$feature_ids), "\n" if $debug;
-            my $query="in(feature_id,(" . join(',', @$feature_ids) . "))";
+            my @feature_ids;
+            for my $feature_id (@{$sequence_source->{feature_ids}}) {
+                if (exists $master_seq_ids{$feature_id}) { # block repeats of same feature
+                    print STDERR "got repeat of feature $feature_id, skipping.\n";
+                }
+                else {
+                    push @feature_ids, $feature_id;
+                    $master_seq_ids{$feature_id} = 1;
+                }
+            }
+            print STDERR "\tfeature_ids = ", join(", ", @feature_ids), "\n" if $debug;
+            my $query="in(feature_id,(" . join(',', @feature_ids) . "))";
             my ($req, $seq_list) = $api->submit_query('genome_feature', $query);
             my @md5_list;
             my $md5_type = ('aa_sequence_md5', 'na_sequence_md5')[$params->{alphabet} eq 'DNA'];
@@ -325,17 +415,33 @@ sub retrieve_sequence_data {
                 push @md5_list, $item->{$md5_type};
             }
             my $seqs = $api->lookup_sequence_data_hash(\@md5_list);
+            my $num_empty = 0;
             for my $item  (@$seq_list) {
                 $item->{sequence} = $seqs->{$item->{$md5_type}};
                 $item->{"database_link"}="feature_id"; 
+                if (length($item->{sequence}) > 0) {
+                    push @master_seq_list, $item;
+                }
+                else {
+                    push @empty_sequences, $item->{id};
+                    $num_empty++;
+                }
             }
             $num_seqs = scalar keys %{$sequence_source->{sequences}};
-            push @master_seq_list, @$seq_list;
+            $comment = "number of features retrieved: $num_seqs";
+            push @{$step_comments}, $comment;
+            print STDERR $comment, "\n";
+            if ($num_empty) {
+                $comment = "number lacking sequence data: $num_empty";
+                push @{$step_comments}, $comment;
+                print STDERR $comment, "\n";
+            }
         }
-        $comment = "number of sequences retrieved: $num_seqs";
+    }
+    if (scalar @empty_sequences) {
+        $comment = "records lacking sequence data: " . join(", ", @empty_sequences);
         push @{$step_comments}, $comment;
         print STDERR "$comment\n";
-        $total_seqs += $num_seqs;
     }
     $comment = $aligned_state ? "sequences are aligned" : "sequences need aligning";
     push @{$step_comments}, $comment;
@@ -397,7 +503,7 @@ sub build_tree {
     for my $seq_item (@$seq_list) {
         my $seq_id = $seq_item->{id};
         print $outfile ">$seq_id\n";
-        print STDERR "writing sequence for $seq_id\n";
+        #print STDERR "writing sequence for $seq_id\n";
         my $sequence = $seq_item->{sequence};
         $sequence =~ tr/-//d unless $is_aligned;
         print $outfile $sequence, "\n";
@@ -447,7 +553,12 @@ sub build_tree {
     print STDERR "About to call tree program $recipe\n";
     my @tree_outputs;
 
-    my $tree_builder = new Tree_Builder($aligned_fasta_file, $alphabet);
+    my $threads = 2;
+    if (exists $ENV{P3_ALLOCATED_CPU}) {
+        $threads = $ENV{P3_ALLOCATED_CPU};
+        print STDERR "P3_ALLOCATED_CPU = $ENV{P3_ALLOCATED_CPU}\n";
+    }
+    my $tree_builder = new Tree_Builder($aligned_fasta_file, $alphabet, $threads);
 
     if ($model) {
        $tree_builder->set_model($model);
@@ -494,7 +605,12 @@ sub build_tree {
     }
     
     my $html_file = "$params->{output_file}_gene_tree_report.html";
-    write_report($html_file, $tree_graphic);
+    my $report_title = "Gene Tree Report";
+    if ($params->{tree_type} eq 'viral_genome') {
+        $html_file = "$params->{output_file}_virus_genome_tree_report.html";
+        $report_title = "Virus Genome Tree Report";
+    }
+    write_report($html_file, $report_title, $tree_graphic);
     push @outputs, [$html_file, "html"];
 
     print STDERR '\@outputs = '. Dumper(\@outputs);
