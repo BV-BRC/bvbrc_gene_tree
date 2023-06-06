@@ -2,7 +2,9 @@ package Sequence_Alignment;
 use strict;
 use warnings;
 use List::Util qw(max);
-use gjoseqlib;
+#
+# Don't import all; we are clashing with write_fasta
+use gjoseqlib qw();
 
 our $debug = 0;
 
@@ -134,7 +136,7 @@ sub read_file {
     elsif ($format eq 'fasta') {
         my $id;
         my $first_seq_len;
-        while (my($id, $def, $seq) = read_next_fasta(\*$fh))
+        while (my($id, $def, $seq) = gjoseqlib::read_next_fasta(\*$fh))
         {
             chomp;
             my $x = $seq =~ tr/ //d;
