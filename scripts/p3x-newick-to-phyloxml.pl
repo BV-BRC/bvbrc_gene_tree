@@ -61,6 +61,7 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['overwrite|o', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
                 ['name=s', 'Name for tree in phyloxml.'],
+                ['remove_substring|r=s', 'Substring to be removed from finalized data'],
                 ['description=s', 'Description of tree in phyloxml.'],
         );
 
@@ -289,6 +290,12 @@ else {
 }
 open F, ">$phyloxml_file";
 my $phyloxml_data = $tree->write_phyloXML();
+
+if ($opt->remove_substring) {
+    my $remove_substring = $opt->remove_substring;
+    $phyloxml_data =~ s/$remove_substring//g;
+}
+
 print F $phyloxml_data;
 close F;
 

@@ -591,7 +591,7 @@ sub build_tree {
     push @outputs, [$tree_graphic, $graphic_format];
     print STDERR "tree_file $treeFile\n";
     if ($database_link) { # use system call to p3x-newick-to-phyloxml 
-        my @command = ('p3x-newick-to-phyloxml', '-l', $database_link, '-g', join(',',@genome_metadata_fields), '-f', join(',', @feature_metadata_fields), $treeFile);
+        my @command = ('p3x-newick-to-phyloxml', '-r', '[^(,)]+\_\@\_', '-l', $database_link, '-g', join(',',@genome_metadata_fields), '-f', join(',', @feature_metadata_fields), $treeFile);
         print STDERR "execute system call: (as array):\n" . join(' ', @command), "\n";
         system(@command);
 
