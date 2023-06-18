@@ -173,7 +173,7 @@ sub write_report {
 
 sub retrieve_sequence_data {
     my ($app, $params, $api) = @_;
-    my ($step_comments, $step_info) = start_step("Gather Sequence Data");
+    my ($step_comments, $step_info) = start_step("Gather sequence data");
     my @master_seq_list; # concatenate seq_list for each data source, return this
     my %master_seq_ids; # control that sequence IDs are unique (modify user fast IDS, drop repeat feature or genomes)
     my $comment;
@@ -1015,7 +1015,7 @@ sub label_tree_with_metadata {
 
 sub generate_tree_graphic {
     my ($input_newick, $num_tips, $graphic_format) = @_;
-    my ($step_comments, $step_info) = start_step("Generate Tree Graphic");
+    my ($step_comments, $step_info) = start_step("Generate tree graphic using FigTree");
     my $file_base = basename($input_newick);
     $file_base =~ s/\..{2,6}//;
     my $tree_graphic_file = "$file_base." . lc($graphic_format);
