@@ -61,7 +61,6 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['overwrite|o', 'Overwrite existing files if any.'],
                 ['verbose|debug|v', 'Write status messages to STDERR.'],
                 ['name=s', 'Name for tree in phyloxml.'],
-                ['remove_substring|r=s', 'Substring to be removed from finalized data'],
                 ['description=s', 'Description of tree in phyloxml.'],
         );
 
@@ -189,6 +188,7 @@ if ($opt->databaselink) {
     print STDERR "query=$query\n" if $debug;
     if ($link =~ /feature_id|patric_id/ and $opt->featurefields) { # get feature annotation
         my $featureFields = $opt->featurefields;
+        $featureFields =~ s/ /_/g; # replace spaces with underscore
         $featureFields .= ",genome_id" if $opt->genomefields and $featureFields !~ /genome_id/;
         my $select = "select($featureFields,$link)"; 
         print STDERR "select=$select\n" if $debug;
@@ -202,7 +202,11 @@ if ($opt->databaselink) {
                 next if $key eq $link;
                 if ($featureFields =~ /$key/) {
                     print "     $key -> $record->{$key}\n" if $debug;
-                    $meta_column{$key}{$id} = $record->{$key};
+                    my $value = $record->{$key};
+                    if (ref($value) eq 'ARRAY') {
+                        $value = join(",", @$value); # flatten array to a string with all entries
+                    }
+                    $meta_column{$key}{$id} = $value;
                 }
                 if ($key eq 'genome_id') {
                     push(@{$genome_to_links{$record->{genome_id}}}, $id); # accumulate all links per genome_id
@@ -211,6 +215,7 @@ if ($opt->databaselink) {
         }
         if (exists $meta_column{'genome_id'}) {
             my $genomeFields = $opt->genomefields();
+            $genomeFields =~ s/ /_/g; # replace spaces with underscore
             if ($genomeFields) {
                 my $unique_genomes = join(",", sort keys %genome_to_links);
                 $query = "in(genome_id,($unique_genomes))";
@@ -225,7 +230,11 @@ if ($opt->databaselink) {
                         if ($genomeFields =~ /$key/) {
                             print "  field $key: " if $debug;
                             for my $tree_id (@{$genome_to_links{$genome_id}}) {
-                                $meta_column{$key}{$tree_id} = $record->{$key};
+                                my $value = $record->{$key};
+                                if (ref($value) eq 'ARRAY') {
+                                    $value = join(",", @$value); # flatten array to a string with all entries
+                                }
+                                $meta_column{$key}{$tree_id} = $value;
                                 print " $tree_id => $record->{$key} " if $debug;
                             }
                             print "\n" if $debug;
@@ -237,6 +246,7 @@ if ($opt->databaselink) {
     }
     elsif ($link eq 'genome_id' and $opt->genomefields) { # get genome annotation
         my $fields = $opt->genomefields();
+        $fields =~ s/ /_/g; # replace spaces with underscore
         my $select = "select($fields,genome_id)";
         if ($opt->verbose) {
             print STDERR "query = $query&$select&$limit\n\n";
@@ -248,7 +258,11 @@ if ($opt->databaselink) {
             my $id = $record->{genome_id};
             for my $key (keys %$record) {
                 if ($fields =~ /$key/) {
-                    $meta_column{$key}{$id} = $record->{$key};
+                    my $value = $record->{$key};
+                    if (ref($value) eq 'ARRAY') {
+                        $value = join(",", @$value); # flatten array to a string with all entries
+                    }
+                    $meta_column{$key}{$id} = $value;
                 }
             }
         }
@@ -290,12 +304,6 @@ else {
 }
 open F, ">$phyloxml_file";
 my $phyloxml_data = $tree->write_phyloXML();
-
-if ($opt->remove_substring) {
-    my $remove_substring = $opt->remove_substring;
-    $phyloxml_data =~ s/$remove_substring//g;
-}
-
 print F $phyloxml_data;
 close F;
 
