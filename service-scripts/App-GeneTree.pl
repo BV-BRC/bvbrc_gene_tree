@@ -293,15 +293,13 @@ sub retrieve_sequence_data {
                     $item->{id} = $item->{feature_id};
                     $item->{database_link} = 'feature_id';
                     $master_seq_ids{$item->{feature_id}} = 1;
-                    push @master_seq_list, $item;
-                }
-                # save non-empty sequences to master seq list
-                if (length($item->{sequence}) > 0) {
-                    push @master_seq_list, $item;
-                }
-                else {
-                    push @empty_sequences, $item->{id};
-                    $num_empty++;
+                    if (length($item->{sequence}) > 0) {
+                        push @master_seq_list, $item;# save non-empty sequences to master seq list
+                    }
+                    else {
+                        push @empty_sequences, $item->{id};
+                        $num_empty++;
+                    }
                 }
             }
             $num_seqs = scalar @$seq_list;
@@ -443,6 +441,10 @@ sub retrieve_sequence_data {
         push @{$step_comments}, $comment;
         print STDERR "$comment\n";
     }
+    
+    my $num_seqs = scalar @master_seq_list;
+    print STDERR "near end of retrieve_sequence_data, number of sequences is $num_seqs\n" if $debug;
+
     $comment = $aligned_state ? "sequences are aligned" : "sequences need aligning";
     push @{$step_comments}, $comment;
     print STDERR "$comment\n";
@@ -482,9 +484,9 @@ sub build_tree {
     my $seqids_are_genome_ids = 0; # indicate whether seq identifiers are links to BVBRC genomes in database
     my $database_link_type = undef;
     my $num_seqs = scalar @$seq_list;
+    print STDERR "After retrieval, number of sequences is $num_seqs\n" if $debug;
     if ($num_seqs < 4) { #need at least 4 seuqences to build a tree
         print STDERR "After retrieval, number of sequences is $num_seqs, less than 4. Cannot build a tree.\n";
-        #die "Too few sequences."
         exit(1);
     }
 
@@ -500,8 +502,13 @@ sub build_tree {
         open $outfile, ">$unaligned_fasta_file" or die "could not open fasta file for output";
     }
     my $database_link = undef;
+    my %seqs_written;
     for my $seq_item (@$seq_list) {
         my $seq_id = $seq_item->{id};
+        #debugging
+        warn "multiple occurrence of $seq_id\n%{$seq_item}\n" if $seqs_written{$seq_id};
+        $seqs_written{$seq_id} = 1;
+
         print $outfile ">$seq_id\n";
         #print STDERR "writing sequence for $seq_id\n";
         my $sequence = $seq_item->{sequence};
@@ -1015,7 +1022,7 @@ sub label_tree_with_metadata {
 
 sub generate_tree_graphic {
     my ($input_newick, $num_tips, $graphic_format) = @_;
-    my ($step_comments, $step_info) = start_step("Generate Tree Graphic");
+    my ($step_comments, $step_info) = start_step("Generate tree graphic using FigTree");
     my $file_base = basename($input_newick);
     $file_base =~ s/\..{2,6}//;
     my $tree_graphic_file = "$file_base." . lc($graphic_format);
