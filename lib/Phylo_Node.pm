@@ -124,6 +124,10 @@ sub parse_newick {
                     if ($node_name =~ /^[\d\.eE-]+$/) { # if it is a number
                         $self->{_support} = $node_name
                     }
+                    elsif ($node_name =~ /^['"]([\d\.eE-]+):(.*)['"]$/) { # quote number colon name unquote
+                        $self->{_support} = $1;
+                        $self->{_name} = $2;
+                    }
                     else {
                         $self->{_name} = $node_name;
                     }
