@@ -92,6 +92,7 @@ sub preflight
         print STDERR "Num seqs = $num_seqs, total lenth = $total_length\n";
     }
     my $run_time = int($total_length/ 300);
+    $run_time = 300 if $run_time < 300; # give a minimum of 5 minutes
     print STDERR "caclulating runtime as total_length/300 = $total_length / 300 = $run_time\n";
     my $pf = {
 	cpu => 8,
