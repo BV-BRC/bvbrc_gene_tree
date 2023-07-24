@@ -50,10 +50,53 @@ sub preflight
 {
     my($app, $app_def, $raw_params, $params) = @_;
     print STDERR "preflight: num params=", scalar keys %$params, "\n";
+    my $api = P3DataAPI->new;
+    print STDERR "Number of sequence data sets = ", scalar(@{$params->{sequences}}), "\n";
+    my $num_seqs = 0;
+    my $total_length = 0;
+    for my $sequence_source (@{$params->{sequences}}) {
+        print STDERR "data item: $sequence_source->{type}, $sequence_source->{filename}\n";
+        if ($sequence_source->{type} =~ /FASTA/i) {
+            # then it is one of the fasta formats in the workspace
+            my $fasta_string = $app->workspace->download_file_to_string($sequence_source->{filename}, $global_token);
+            for $_ (split("\n", $fasta_string)) {
+                if (/^>/) {
+                    $num_seqs++;
+                }
+                else {
+                    $total_length += length($_);
+                }
+            }
+        }
+        elsif ($sequence_source->{type} eq "feature_group") {
+            # need to get feature sequences from database 
+            my $feature_group = $sequence_source->{filename};
+            my $na_or_aa = ('aa', 'na')[$params->{alphabet} eq 'DNA']; 
+            my $seq_list = $api->retrieve_sequences_from_feature_group($feature_group, $na_or_aa);
+            for my $item (@$seq_list) {
+                $num_seqs++;
+                $total_length += length($item->{sequence});
+            }
+        }
+        elsif ($sequence_source->{type} eq "genome_group") {
+            my $genome_group = $sequence_source->{filename};
+            my $genome_ids = $api->retrieve_patric_ids_from_genome_group($genome_group);
+            $num_seqs += scalar @{$genome_ids};
+            #print STDERR "Num seqs = $num_seqs, genome_ids = @{$genome_ids}\n";
+            my @genome_validation_data = $api->retrieve_genome_metadata($genome_ids, ['genome_length']);
+            for my $info (@genome_validation_data) {
+                $total_length += $info->{genome_length};
+                print STDERR "$total_length\n";
+            }
+        }
+        print STDERR "Num seqs = $num_seqs, total lenth = $total_length\n";
+    }
+    my $run_time = int($total_length/ 300);
+    print STDERR "caclulating runtime as total_length/300 = $total_length / 300 = $run_time\n";
     my $pf = {
 	cpu => 8,
 	memory => "32G",
-	runtime => 3600 * 6,
+	runtime => $run_time,
 	storage => 0,
 	is_control_task => 0,
     };

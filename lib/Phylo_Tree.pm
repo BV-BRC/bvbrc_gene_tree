@@ -77,6 +77,24 @@ sub get_tip_names {
     return \@retval;
 }
 
+sub swap_tip_names {
+    my $self = shift;
+    my $swap_dict = shift;
+    my $old_name_field = shift;
+    my $annotation_dictionary;
+    for my $tip (@{$self->{_tips}}) {
+        if (exists $swap_dict->{$tip->{_name}}) {
+            my $old_name = $tip->{_name};
+            my $new_name = $swap_dict->{$old_name};
+            $tip->{_name} = $new_name;
+            $annotation_dictionary->{$new_name} = $old_name;
+            #$tip->add_phyloxml_property("BVBRC:$old_name_field", $old_name);
+            print STDERR "swap_tip_names: $old_name -> $new_name\n" if $debug;
+        }
+    }
+    $self->{_annotation}{$old_name_field} = $annotation_dictionary;
+}
+
 sub read_newick {
     my $self = shift;
     my $newick = shift; #either a newick string or a filname
