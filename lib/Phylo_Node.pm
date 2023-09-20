@@ -1,6 +1,11 @@
 package Phylo_Node;
 use strict;
-use warnings;
+use warnings; 
+use Exporter;
+our @ISA = qw(Exporter);
+our @EXPORT = qw(
+  xml_sanitize
+  );
 our $debug = 0;
 
 sub set_debug { $debug = shift}
@@ -218,34 +223,37 @@ sub add_phyloxml_property {
     print STDERR "Phylo_Node:add_phyloxml_property just added key=$ref, val=$self->{_properties}{$ref}\n" if $debug > 2;
 }
 
+sub xml_sanitize {
+    my ($string) = @_;
+    $string =~ s/</&lt;/g;
+    $string =~ s/>/&gt;/g;
+    $string =~ s/&(?!(#\d{1,3}|lt|gt|amp);)/&amp;/g;
+    $string =~ s/'/&#39;/g;
+    $string =~ s/"/&#34;/g;
+    return $string
+}
+
 sub write_phyloXML {
     my ($self, $indent) = @_;
     print STDERR "node:write_phyloXML, self keys = ", join(", ", keys %{$self}) if $debug > 2;
     my $retval = $indent . "<clade>\n";
     if (exists $self->{'_name'} and $self->{'_name'}) {
-        $retval .= $indent . " <name>$self->{'_name'}</name>\n";
+        my $name = xml_sanitize($self->{'_name'});
+        $retval .= $indent . " <name>$name</name>\n";
     }
     if (exists $self->{_branch_length}) {
-        $retval .= $indent . " <branch_length>" . $self->{_branch_length} . "</branch_length>\n";
+        $retval .= $indent . " <branch_length>" . xml_sanitize($self->{_branch_length}) . "</branch_length>\n";
     }
     if (exists $self->{_support}) {
-        $retval .= $indent . " <confidence type=\"" . $self->{_tree}->get_support_type() . "\">" . $self->{_support} . "</confidence>\n";
+        $retval .= $indent . " <confidence type=\"" . xml_sanitize($self->{_tree}->get_support_type()) . "\">" . $self->{_support} . "</confidence>\n";
     }
     if (exists $self->{_name}) {
         my $property_list = $self->{_tree}->get_phyloxml_properties($self->{_name});
         if ($property_list and scalar @$property_list) {
             for my $property (@$property_list) {
-                $retval .= $indent . " $property\n";
+                # properties are already xml_sanitized
+                $retval .= $indent . " " . $property . "\n";
             }
-        }
-    }
-    if (0 and exists $self->{_properties}) {
-        print STDERR "Properties found: refs = ", join(",", keys %{$self->{_properties}}), "\n" if $debug > 2;
-        for my $ref (sort keys %{$self->{_properties}}) {
-            my $applies_to = $self->{_property_applies_to}{$ref};
-            my $datatype = $self->{_property_datatype}{$ref};
-            $retval .= $indent . " <property ref=\"$ref\" datatype=\"$datatype\" applies_to=\"$applies_to\">";
-            $retval .= $self->{_properties}{$ref} . "</property>\n";
         }
     }
 	if (exists $self->{'_children'}) {
@@ -328,4 +336,4 @@ sub write_svg {
     return $retval;
 }
 
-1
+1;

@@ -51,11 +51,9 @@ use Phylo_Tree; # should be in lib directory
 # Get the command-line options.
 
 my($opt, $usage) = P3Utils::script_opts('newickFile',
-                ['annotationtsv|a=s', 'Name of a TSV file containing annotation for tips on the tree'],
                 ['databaselink|link|l=s', 'Name of database field that tree identifiers map to (feature_id, genome_id, patric_id).'],
-                ['provenance|p=s', 'Provenance of annotation. (default: BVBRC)', { default => 'BVBRC' }],
-                ['featurefields|f=s', 'Comma-separated list of feature fields to annotate each tree tip.', {default => 'product,accession'}],
                 ['genomefields|g=s', 'Comma-separated list of genome fields to annotate each tree tip.', {default => 'species,strain,geographic_group,isolation_country,host_group,host_common_name,collection_year,genus,mlst'}],
+                ['featurefields|f=s', 'Comma-separated list of feature fields to annotate each tree tip.', {default => 'product,accession'}],
                 ['output_name=s', 'Output filename.'],
                 ['name_with_all_fields', 'Construct output file to include all fields.'],
                 ['overwrite|o', 'Overwrite existing files if any.'],
@@ -63,6 +61,9 @@ my($opt, $usage) = P3Utils::script_opts('newickFile',
                 ['name=s', 'Name for tree in phyloxml.'],
                 ['remove_substring|r=s', 'Substring to be removed from finalized data'],
                 ['description=s', 'Description of tree in phyloxml.'],
+                ['gtdb_bvbrc=s', 'Translation table from GTDB IDs to BVBRC genome IDs.'],
+                ['annotationtsv|a=s', 'TSV file containing annotation for tips on the tree (or comma-delimited list)'],
+                ['provenance|p=s', 'Provenance of annotation. (default: BVBRC)', { default => 'BVBRC' }],
         );
 
 # Check the parameters.
@@ -82,6 +83,7 @@ my $newickFile = shift;
 # Get the debug flag.
 my $debug = $opt->verbose;
 if ($debug) {
+    $debug=3;
     Phylo_Tree::set_debug($debug); 
     Phylo_Node::set_debug($debug); 
     print STDERR "args = ", join("\n", @ARGV), "\n";
@@ -143,33 +145,52 @@ if ($opt->name) {
 if ($opt->description) {
     $tree->set_description($opt->description);
 }
+if ($opt->gtdb_bvbrc) { #read  translation from GTDB IDs to bvbrc genome_ids
+    print STDERR "reading gtdb_bvbrc from $opt->gtdb_bvbrc\n" if $debug;
+    open F, $opt->gtdb_bvbrc;
+    my %gtdb_bvbrc;
+    while (<F>) {
+        chomp;
+        my ($gtdb, $bvbrc) = split("\t");
+        $gtdb_bvbrc{$gtdb} = $bvbrc;
+    }
+    # iterate over tips of tree
+    # swap GTDB ID for BVBRC genome ID
+    # store GTDB ID as metadata for node
+    print STDERR "swapping input GTDB IDs for BVBRC genome IDs\n" if $debug;
+    $tree->swap_tip_names(\%gtdb_bvbrc, 'GTDB_ID');
+}
 
 my %meta_column; #first key is column (field name), second key is row (tip ID)
 if ($opt->annotationtsv) {
-    my $metadata_file = $opt->annotationtsv;
-    print STDERR "reading metadata from $metadata_file\n" if $debug;
-    open F, $metadata_file;
-    $_ = <F>;
-    chomp;
-    my @header = split("\t");
-    shift @header; #remove first element
-    for my $column_head (@header) {
-        $meta_column{$column_head}{'column_head'} = $column_head;
-    }
-    print STDERR "Header fields: " . join(", ", @header) . "\n" if $debug;
-    while (<F>) {
-        s/^#//; # remove leading pound sign, if any
+    for my $metadata_file ( split(',', $opt->annotationtsv) ) {
+        print STDERR "reading metadata from $metadata_file\n" if $debug;
+        open F, $metadata_file;
+        $_ = <F>;
         chomp;
-        my @fields = split("\t");
-        my $id = shift @fields; # remove first element
-        print STDERR "got metadatafields for $id\n" if $debug;
-        for my $i (0 .. $#header) {
-            my $column_head = $header[$i];
-            my $val = $fields[$i];
-            $meta_column{$column_head}{$id} = $val;
-            print STDERR "\t$column_head=$val" if $debug;
+        my @header = split("\t");
+        shift @header; #remove first element
+        for my $column_head (@header) {
+            if (exists $meta_column{$column_head}) {
+                print STDERR "metadata column $column_head from file $metadata_file already exists: data may be over-written\n";
+            }
+            $meta_column{$column_head}{'column_head'} = $column_head;
         }
-        print STDERR "\n" if $debug;
+        print STDERR "Header fields: " . join(", ", @header) . "\n" if $debug;
+        while (<F>) {
+            s/^#//; # remove leading pound sign, if any
+            chomp;
+            my @fields = split("\t");
+            my $id = shift @fields; # remove first element
+            print STDERR "got metadatafields for $id\n" if $debug;
+            for my $i (0 .. $#header) {
+                my $column_head = $header[$i];
+                my $val = $fields[$i];
+                $meta_column{$column_head}{$id} = $val;
+                print STDERR "\t$column_head=$val" if $debug;
+            }
+            print STDERR "\n" if $debug;
+        }
     }
     for my $field (keys %meta_column) {
         $tree->add_tip_annotation($field, $meta_column{$field});
