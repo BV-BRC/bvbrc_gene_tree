@@ -247,6 +247,7 @@ sub retrieve_sequence_data {
                     $seq_item = \%temp;
                     push @seq_list, $seq_item;
                     $seq_item->{user_identifier} = $user_identifier;
+                    $seq_item->{data_source} = $local_file;
                     $seq_item->{sequence} = '';
                     if ($user_identifier =~ /[[]():]/) {
                         $seq_item->{original_id} = $user_identifier;
@@ -328,6 +329,7 @@ sub retrieve_sequence_data {
                 }
             }
             my $num_empty = 0;
+            $feature_group =~ s/.*\///; # remove path preceding name of feature group
             for my $item (@$seq_list) {
                 if (exists $master_seq_ids{$item->{feature_id}}) { # block repeats of same feature
                     print STDERR "got repeat of feature $item->{feature_id}, skipping.\n";
@@ -335,6 +337,7 @@ sub retrieve_sequence_data {
                 else {
                     push @original_sequence_ids, $item->{feature_id};
                     $item->{id} = $item->{feature_id};
+                    $item->{data_source} = $feature_group;
                     $item->{database_link} = 'feature_id';
                     $master_seq_ids{$item->{feature_id}} = 1;
                     if (length($item->{sequence}) > 0) {
@@ -407,12 +410,14 @@ sub retrieve_sequence_data {
             push @original_sequence_ids, @genome_ids;
             $num_seqs = scalar @genome_ids;
             my $num_empty = 0;
+            $genome_group =~ s/.*\///; # remove path preceding name of genome group
             for my $item (@genome_validation_data) {
                 my $genome_id = $item->{genome_id};
                 my ($resp, $data) = $api->submit_query('genome_sequence', "eq(genome_id,$genome_id)", "sequence");
                 #print "for $genome_id: resp = $resp\tdata=$data\tdata->[0]=$data->[0]\n" if $debug;
                 $item->{sequence} = $data->[0]->{sequence};
                 $item->{id} = $genome_id;
+                $item->{data_source} = $genome_group;
                 $item->{database_link} = 'genome_id';
             # save non-empty sequences to master seq list
                 if (length($item->{sequence}) > 0) {
@@ -642,7 +647,31 @@ sub build_tree {
     push @outputs, [$tree_graphic, $graphic_format];
     print STDERR "tree_file $treeFile\n";
     if ($database_link) { # use system call to p3x-newick-to-phyloxml 
-        my @command = ('p3x-newick-to-phyloxml', '-r', '[^(,)]+\_\@\_', '-l', $database_link, '-g', join(',',@genome_metadata_fields), '-f', join(',', @feature_metadata_fields), $treeFile);
+        my @command = ('p3x-newick-to-phyloxml', '-r', '[^(,)]+\_\@\_', '-l', $database_link, '-g', join(',',@genome_metadata_fields), '-f', join(',', @feature_metadata_fields)); # minus tree file (add later)
+        my %data_source_count;
+        for my $seq_item (@$seq_list) {
+            my $data_source = $seq_item->{data_source};
+            if ($data_source) {
+                $data_source_count{$data_source}++
+            }
+        }
+        if ((scalar keys %data_source_count) > 1) {
+            # write data sources to a tsv file and invoke adding it to phyloxml
+            open F, ">data_source.tsv";
+            print F "seq_id\tdata_source\n";
+            for my $seq_item (@$seq_list) {
+                my $data_source = "NA";
+                if (exists $seq_item->{data_source}) {
+                    $data_source = $seq_item->{data_source};
+                }
+                print F "$seq_item->{id}\t$data_source\n";
+            }
+            close F;
+            push @command, ("--annotationtsv", "data_source.tsv");
+        }
+        push @command, $treeFile;
+            
+        #debugging
         print STDERR "execute system call: (as array):\n" . join(' ', @command), "\n";
         system(@command);
 
