@@ -658,7 +658,7 @@ sub build_tree {
         if ((scalar keys %data_source_count) > 1) {
             # write data sources to a tsv file and invoke adding it to phyloxml
             open F, ">data_source.tsv";
-            print F "seq_id\tdata_source\n";
+            print F "seq_id\tGroup\n";
             for my $seq_item (@$seq_list) {
                 my $data_source = "NA";
                 if (exists $seq_item->{data_source}) {
