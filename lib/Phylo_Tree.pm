@@ -77,6 +77,24 @@ sub get_tip_names {
     return \@retval;
 }
 
+sub swap_tip_names {
+    my $self = shift;
+    my $swap_dict = shift;
+    my $old_name_field = shift;
+    my $annotation_dictionary;
+    for my $tip (@{$self->{_tips}}) {
+        if (exists $swap_dict->{$tip->{_name}}) {
+            my $old_name = $tip->{_name};
+            my $new_name = $swap_dict->{$old_name};
+            $tip->{_name} = $new_name;
+            $annotation_dictionary->{$new_name} = $old_name;
+            #$tip->add_phyloxml_property("BVBRC:$old_name_field", $old_name);
+            print STDERR "swap_tip_names: $old_name -> $new_name\n" if $debug;
+        }
+    }
+    $self->{_annotation}{$old_name_field} = $annotation_dictionary;
+}
+
 sub read_newick {
     my $self = shift;
     my $newick = shift; #either a newick string or a filname
@@ -334,15 +352,18 @@ sub get_phyloxml_properties {
     my @retval = ();
     for my $ref (sort keys %{$self->{_annotation}}) {
         my $provenance = "BVBRC"; #default
-        my $data_type = "xsd:string";
-        my $applies_to = "node";
         if (exists $self->{_annotation}->{$ref}->{'provenance'}) {
             $provenance = $self->{_annotation}->{$ref}->{'provenance'}; #allow specifying provenance per ref (field)
+            $provenance = xml_sanitize($provenance);
         }
-        $applies_to = $self->{_annotation}->{$ref}->{applies_to} if $self->{_annotation}->{$ref}->{applies_to};
-        $data_type = $self->{_annotation}->{$ref}->{data_type} if $self->{_annotation}->{$ref}->{data_type};
+        my $applies_to = "node";
+        $applies_to = xml_sanitize($self->{_annotation}->{$ref}->{applies_to}) if $self->{_annotation}->{$ref}->{applies_to};
+        my $data_type = "xsd:string";
+        $data_type = xml_sanitize($self->{_annotation}->{$ref}->{data_type}) if $self->{_annotation}->{$ref}->{data_type};
         if (exists $self->{_annotation}->{$ref}->{$tip_label}) {
-            my $property = "<property ref=\"$provenance:$ref\" datatype=\"$data_type\" applies_to=\"$applies_to\">$self->{_annotation}->{$ref}->{$tip_label}</property>";
+            my $val = $self->{_annotation}->{$ref}->{$tip_label};
+            $val = xml_sanitize($val);
+            my $property = "<property ref=\"$provenance:$ref\" datatype=\"$data_type\" applies_to=\"$applies_to\">$val</property>";
             push @retval, $property;
         }
     }
@@ -355,12 +376,12 @@ sub write_phyloXML {
     $retval .= '<?xml version="1.0" encoding="UTF-8"?>
 <phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.20/phyloxml.xsd" xmlns="http://www.phyloxml.org">
  <phylogeny rooted="true" rerootable="true"';
-    $retval .= " type=\"$self->{_type}\"\n" if $self->{_type};
-    $retval .= " description=\"$self->{_description}\"\n" if $self->{_description};
-    $retval .= " support_type=\"$self->{_support_type}\"\n" if $self->{_support_type};
+    $retval .= " type=\"" . xml_sanitize($self->{_type}) . "\"\n" if $self->{_type};
+    $retval .= " description=\"" . xml_sanitize($self->{_description}) . "\"\n" if $self->{_description};
+    $retval .= " support_type=\"" . xml_sanitize($self->{_support_type}) . "\"\n" if $self->{_support_type};
     $retval .= ">\n";
-    $retval .= " <name>$self->{_name}</name>\n" if $self->{_name};
-    $retval .= " <description>$self->{_description}</description>\n" if $self->{_description};
+    $retval .= " <name>" . xml_sanitize($self->{_name}) . "</name>\n" if $self->{_name};
+    $retval .= " <description>" . xml_sanitize($self->{_description}) . "</description>\n" if $self->{_description};
     $retval .= $self->{_root}->write_phyloXML(' ');  # recursively write root and all descendants
     $retval .= " </phylogeny>\n</phyloxml>\n";
 }

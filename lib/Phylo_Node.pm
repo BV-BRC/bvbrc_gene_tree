@@ -1,9 +1,16 @@
 package Phylo_Node;
 use strict;
-use warnings;
+use warnings; 
+use Exporter;
+our @ISA = qw(Exporter);
+our @EXPORT = qw(
+  xml_sanitize
+  );
 our $debug = 0;
 
-sub set_debug { $debug = shift}
+sub set_debug { $debug = shift;
+    print("Phylo_Node::set_debug($debug)\n");
+    }
 
 sub new {
     my ($class, $owner, $level, $newick) = @_;
@@ -53,25 +60,21 @@ sub set_branch_length {
     $self->{_branch_length} = $length;
 }
 
-our %quote_char = ('"' => 1, "'", => 1);
-
 sub parse_newick {
     my ($self, $newick) = @_;
-	my $pos = 0;
     my $active_quote = 0;
     my @subclades = ();
     my $subclade = "";
-    my $node_name = "";
-    my $branch_length = "";
-    my $state = 'none'; #first subclade, then name, then branch length
     my $open = 0;
+    my %quote_char = ('"' => 1, "'", => 1);
     #print STDERR "parse newick:\n$newick\n" if $debug;
-	for my $char (split('', "$newick;")) { #iterate over each charachter
+    my @newick_chars = split('', $newick);
+	my $pos = 0;
+	while ($pos < scalar(@newick_chars)) { #iterate over each charachter
+        my $char = $newick_chars[$pos];
         $pos++;
-        if ($state eq 'none') {
-            $state = $char eq '(' ? 'subclade' : 'name'
-        }
         if (exists $quote_char{$char}) {
+            $subclade .= $char; # leave quotes around subclade
             if ( $active_quote and $char eq $active_quote) { #turn it off
                 $active_quote = 0
             }
@@ -80,77 +83,106 @@ sub parse_newick {
             }
         }
         #print STDERR "\t$self->{_level}\t$pos\t$char\t$open\t$active_quote\t$state\n" if $debug;
-        if ($state eq 'subclade') {
-            if ($active_quote) { #ignode open/close parens and other terminators if in a quoted region
-                    $subclade .= $char;
-                }
-            else { 
-                if ($char eq '(') {
-                    $open++;
-                    if ($open == 1) {
-                        $self->{_children} = () unless (exists $self->{_children});
-                        print STDERR "  initiate subclade\n" if $debug > 2;
-                    }
-                    else { # do not put opening paren on subclade
-                        $subclade .= $char
-                    }
-                }
-                elsif ($open == 1 and ($char eq ',' or $char eq ')')) {
-                    #found separator between subclades or terminator 
-                    #print STDERR "Got subclade:\n", $subclade, "\n" if $debug; #$subclade\n";
-                    push @subclades, $subclade;
-                    $subclade = "";
-                }
-                else { #avoid putting separator in subclade string
-                    $subclade .= $char;
-                }
-                $open-- if $char eq ')';
-                $state = 'name' if $open == 0;
+        elsif ($active_quote) { #ignode open/close parens and other terminators if in a quoted region
+                $subclade .= $char;
             }
-		}
-        elsif ($state eq 'name') {
-            #if ($char eq ')' and not $node_name) {
-            #    continue # terminator from preceding subclade operation
-            #}
-            if ($active_quote) {
-                $node_name .= $char
-            }
-            elsif ($char eq ';' or $char eq ',' or $char eq ')' or $char eq ':') {
-                $state = 'terminated';
-                $state = 'branch_length' if $char eq ':';
-                print STDERR " name: $node_name,  term = $char\n" if $debug > 2;
-                if (exists $self->{_children}) {
-                    $self->{_tree}->register_interior_node($self);
-                    if ($node_name =~ /^[\d\.eE-]+$/) { # if it is a number
-                        $self->{_support} = $node_name
-                    }
-                    else {
-                        $self->{_name} = $node_name;
-                    }
+        else { 
+            if ($char eq '(') {
+                $open++;
+                if ($open == 1) {
+                    print STDERR "  initiate subclade\n" if $debug > 2;
                 }
-                else {
-                    $self->{_name} = $node_name;
-                    $self->{_tree}->register_tip($self);
+                else { # do not put opening paren on subclade
+                    $subclade .= $char
                 }
             }
-            else {
-				$node_name .= $char;
+            elsif ($open == 1 and ($char eq ',' or $char eq ')')) {
+                #found separator between subclades or terminator 
+                #print STDERR "Got subclade:\n", $subclade, "\n" if $debug; #$subclade\n";
+                push @subclades, $subclade;
+                $subclade = "";
             }
-		}
-		elsif ($state eq 'branch_length') {
-            if ($char eq ',' or $char eq ';') {
-                $state = 'terminated';
-                print STDERR " bl: $branch_length, term = $char\n" if $debug > 1;
+            else { #avoid putting separator in subclade string
+                $subclade .= $char;
             }
-            else {
-				$branch_length .= $char;
-			}
+            $open-- if $char eq ')';
+            if ($open == 0) { # when we get to even on the open/closed parens, we are done except for end words
+                $pos-- if (scalar @subclades == 0); # if the char that triggered open==zero is not a close paren, we need it back
+                last;
+            }
 		}
     }
+    # look for words separated by ':'
+    # if two, then first should be name, second should be branch length
+    # possibly first of two is combo of suport and name, separated by ':'
+    # if three, then first should be support, second is name, third is branch length
+    my @end_words;
+    my $cur_word = '';
+    while ($pos < scalar(@newick_chars)) {
+        my $char = $newick_chars[$pos];
+        $pos++;
+        if (exists $quote_char{$char}) {
+            if ( $active_quote and $char eq $active_quote) { #turn it off
+                $active_quote = 0
+            }
+            else { #turn it on
+                $active_quote = $char
+            }
+        }
+        elsif ($active_quote) {
+            $cur_word .= $char
+        }
+        elsif ($char eq ':') {
+            push @end_words, $cur_word;
+            $cur_word = '';
+        }
+        else {
+            $cur_word .= $char
+        }
+    }
+    push @end_words, $cur_word if ($cur_word);
+    my ($support, $name, $branch_length) = ('', '', '');
+    if (scalar @end_words == 1) {
+        # either a name or support value, go by number vs not-number
+        if (scalar(@subclades) > 0 and $end_words[0] =~ /^[\d\.eE-]+$/) {
+            $support = $end_words[0]; # interior node and all-numeric
+        }
+        else {
+            $name = $end_words[0];
+        }
+    }
+    elsif (scalar @end_words == 2) { # case of name:bl
+        if ($end_words[0] =~ /^['"](.*):(.*)['"]&/) { # case of support+name combo, as found in GTDB trees
+            ($support, $name) = ($1, $2);
+        }
+        elsif (scalar(@subclades) > 0 and $end_words[0] =~ /^[\d\.eE-]+$/) {
+            $support = $end_words[0]; # interior node and all-numeric
+        }
+        else {
+            $name = $end_words[0];
+        }
+        $branch_length = $end_words[1];
+    }
+    elsif (scalar @end_words == 3) { # happens when GTDB support+name loses quotes, as happens when dendropy writes it out
+        ($support, $name, $branch_length) = @end_words;
+    }
+    if ($debug > 2) {
+        print(STDERR "end words: " . join(" | ", @end_words) . "\n");
+        print(STDERR "snb: " . join(" | ", ($support, $name, $branch_length)) . "\n");
+    }        
+
+    $self->{_support} = $support if $support; # might throw an exception
+    $self->{_name} = $name if $name;
     $self->{_branch_length} = $branch_length if $branch_length;
-    for my $newick_subclade (@subclades) {
-        my $child = new Phylo_Node($self->{_tree}, $self->{_level}+1, $newick_subclade);
-        push @{$self->{_children}}, $child;
+    if (scalar @subclades) {
+        $self->{_tree}->register_interior_node($self);
+        for my $newick_subclade (@subclades) {
+            my $child = new Phylo_Node($self->{_tree}, $self->{_level}+1, $newick_subclade);
+            push @{$self->{_children}}, $child;
+        }
+    }
+    else {
+        $self->{_tree}->register_tip($self);
     }
 }
 
@@ -214,34 +246,37 @@ sub add_phyloxml_property {
     print STDERR "Phylo_Node:add_phyloxml_property just added key=$ref, val=$self->{_properties}{$ref}\n" if $debug > 2;
 }
 
+sub xml_sanitize {
+    my ($string) = @_;
+    $string =~ s/</&lt;/g;
+    $string =~ s/>/&gt;/g;
+    $string =~ s/&(?!(#\d{1,3}|lt|gt|amp);)/&amp;/g;
+    $string =~ s/'/&#39;/g;
+    $string =~ s/"/&#34;/g;
+    return $string
+}
+
 sub write_phyloXML {
     my ($self, $indent) = @_;
     print STDERR "node:write_phyloXML, self keys = ", join(", ", keys %{$self}) if $debug > 2;
     my $retval = $indent . "<clade>\n";
     if (exists $self->{'_name'} and $self->{'_name'}) {
-        $retval .= $indent . " <name>$self->{'_name'}</name>\n";
+        my $name = xml_sanitize($self->{'_name'});
+        $retval .= $indent . " <name>$name</name>\n";
     }
     if (exists $self->{_branch_length}) {
-        $retval .= $indent . " <branch_length>" . $self->{_branch_length} . "</branch_length>\n";
+        $retval .= $indent . " <branch_length>" . xml_sanitize($self->{_branch_length}) . "</branch_length>\n";
     }
     if (exists $self->{_support}) {
-        $retval .= $indent . " <confidence type=\"" . $self->{_tree}->get_support_type() . "\">" . $self->{_support} . "</confidence>\n";
+        $retval .= $indent . " <confidence type=\"" . xml_sanitize($self->{_tree}->get_support_type()) . "\">" . $self->{_support} . "</confidence>\n";
     }
     if (exists $self->{_name}) {
         my $property_list = $self->{_tree}->get_phyloxml_properties($self->{_name});
         if ($property_list and scalar @$property_list) {
             for my $property (@$property_list) {
-                $retval .= $indent . " $property\n";
+                # properties are already xml_sanitized
+                $retval .= $indent . " " . $property . "\n";
             }
-        }
-    }
-    if (0 and exists $self->{_properties}) {
-        print STDERR "Properties found: refs = ", join(",", keys %{$self->{_properties}}), "\n" if $debug > 2;
-        for my $ref (sort keys %{$self->{_properties}}) {
-            my $applies_to = $self->{_property_applies_to}{$ref};
-            my $datatype = $self->{_property_datatype}{$ref};
-            $retval .= $indent . " <property ref=\"$ref\" datatype=\"$datatype\" applies_to=\"$applies_to\">";
-            $retval .= $self->{_properties}{$ref} . "</property>\n";
         }
     }
 	if (exists $self->{'_children'}) {
@@ -324,4 +359,4 @@ sub write_svg {
     return $retval;
 }
 
-1
+1;

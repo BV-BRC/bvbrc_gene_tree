@@ -50,10 +50,54 @@ sub preflight
 {
     my($app, $app_def, $raw_params, $params) = @_;
     print STDERR "preflight: num params=", scalar keys %$params, "\n";
+    my $api = P3DataAPI->new;
+    print STDERR "Number of sequence data sets = ", scalar(@{$params->{sequences}}), "\n";
+    my $num_seqs = 0;
+    my $total_length = 0;
+    for my $sequence_source (@{$params->{sequences}}) {
+        print STDERR "data item: $sequence_source->{type}, $sequence_source->{filename}\n";
+        if ($sequence_source->{type} =~ /FASTA/i) {
+            # then it is one of the fasta formats in the workspace
+            my $fasta_string = $app->workspace->download_file_to_string($sequence_source->{filename}, $global_token);
+            for $_ (split("\n", $fasta_string)) {
+                if (/^>/) {
+                    $num_seqs++;
+                }
+                else {
+                    $total_length += length($_);
+                }
+            }
+        }
+        elsif ($sequence_source->{type} eq "feature_group") {
+            # need to get feature sequences from database 
+            my $feature_group = $sequence_source->{filename};
+            my $na_or_aa = ('aa', 'na')[$params->{alphabet} eq 'DNA']; 
+            my $seq_list = $api->retrieve_sequences_from_feature_group($feature_group, $na_or_aa);
+            for my $item (@$seq_list) {
+                $num_seqs++;
+                $total_length += length($item->{sequence});
+            }
+        }
+        elsif ($sequence_source->{type} eq "genome_group") {
+            my $genome_group = $sequence_source->{filename};
+            my $genome_ids = $api->retrieve_patric_ids_from_genome_group($genome_group);
+            $num_seqs += scalar @{$genome_ids};
+            #print STDERR "Num seqs = $num_seqs, genome_ids = @{$genome_ids}\n";
+            my @genome_validation_data = $api->retrieve_genome_metadata($genome_ids, ['genome_length']);
+            for my $info (@genome_validation_data) {
+                $total_length += $info->{genome_length};
+                print STDERR "$total_length\n";
+            }
+        }
+        print STDERR "Num seqs = $num_seqs, total lenth = $total_length\n";
+    }
+    my $run_time = int($total_length/ 300);
+    $run_time = 300 if $run_time < 300; # give a minimum of 5 minutes
+    print STDERR "caclulating runtime as total_length/300 = $total_length / 300 = $run_time\n";
     my $pf = {
 	cpu => 8,
 	memory => "32G",
-	runtime => 3600 * 6,
+	runtime => $run_time,
 	storage => 0,
 	is_control_task => 0,
     };
@@ -203,6 +247,7 @@ sub retrieve_sequence_data {
                     $seq_item = \%temp;
                     push @seq_list, $seq_item;
                     $seq_item->{user_identifier} = $user_identifier;
+                    $seq_item->{data_source} = $local_file;
                     $seq_item->{sequence} = '';
                     if ($user_identifier =~ /[[]():]/) {
                         $seq_item->{original_id} = $user_identifier;
@@ -284,6 +329,7 @@ sub retrieve_sequence_data {
                 }
             }
             my $num_empty = 0;
+            $feature_group =~ s/.*\///; # remove path preceding name of feature group
             for my $item (@$seq_list) {
                 if (exists $master_seq_ids{$item->{feature_id}}) { # block repeats of same feature
                     print STDERR "got repeat of feature $item->{feature_id}, skipping.\n";
@@ -291,6 +337,7 @@ sub retrieve_sequence_data {
                 else {
                     push @original_sequence_ids, $item->{feature_id};
                     $item->{id} = $item->{feature_id};
+                    $item->{data_source} = $feature_group;
                     $item->{database_link} = 'feature_id';
                     $master_seq_ids{$item->{feature_id}} = 1;
                     if (length($item->{sequence}) > 0) {
@@ -363,12 +410,14 @@ sub retrieve_sequence_data {
             push @original_sequence_ids, @genome_ids;
             $num_seqs = scalar @genome_ids;
             my $num_empty = 0;
+            $genome_group =~ s/.*\///; # remove path preceding name of genome group
             for my $item (@genome_validation_data) {
                 my $genome_id = $item->{genome_id};
                 my ($resp, $data) = $api->submit_query('genome_sequence', "eq(genome_id,$genome_id)", "sequence");
                 #print "for $genome_id: resp = $resp\tdata=$data\tdata->[0]=$data->[0]\n" if $debug;
                 $item->{sequence} = $data->[0]->{sequence};
                 $item->{id} = $genome_id;
+                $item->{data_source} = $genome_group;
                 $item->{database_link} = 'genome_id';
             # save non-empty sequences to master seq list
                 if (length($item->{sequence}) > 0) {
@@ -598,7 +647,31 @@ sub build_tree {
     push @outputs, [$tree_graphic, $graphic_format];
     print STDERR "tree_file $treeFile\n";
     if ($database_link) { # use system call to p3x-newick-to-phyloxml 
-        my @command = ('p3x-newick-to-phyloxml', '-r', '[^(,)]+\_\@\_', '-l', $database_link, '-g', join(',',@genome_metadata_fields), '-f', join(',', @feature_metadata_fields), $treeFile);
+        my @command = ('p3x-newick-to-phyloxml', '-r', '[^(,)]+\_\@\_', '-l', $database_link, '-g', join(',',@genome_metadata_fields), '-f', join(',', @feature_metadata_fields)); # minus tree file (add later)
+        my %data_source_count;
+        for my $seq_item (@$seq_list) {
+            my $data_source = $seq_item->{data_source};
+            if ($data_source) {
+                $data_source_count{$data_source}++
+            }
+        }
+        if ((scalar keys %data_source_count) > 1) {
+            # write data sources to a tsv file and invoke adding it to phyloxml
+            open F, ">data_source.tsv";
+            print F "seq_id\tGroup\n";
+            for my $seq_item (@$seq_list) {
+                my $data_source = "NA";
+                if (exists $seq_item->{data_source}) {
+                    $data_source = $seq_item->{data_source};
+                }
+                print F "$seq_item->{id}\t$data_source\n";
+            }
+            close F;
+            push @command, ("--annotationtsv", "data_source.tsv");
+        }
+        push @command, $treeFile;
+            
+        #debugging
         print STDERR "execute system call: (as array):\n" . join(' ', @command), "\n";
         system(@command);
 
