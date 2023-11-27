@@ -246,21 +246,20 @@ sub retrieve_sequence_data {
                     my %temp = ();
                     $seq_item = \%temp;
                     push @seq_list, $seq_item;
+                    $seq_item->{id} = $user_identifier;
                     $seq_item->{user_identifier} = $user_identifier;
                     $seq_item->{data_source} = $local_file;
                     $seq_item->{sequence} = '';
-                    if ($user_identifier =~ /[[]():]/) {
-                        $seq_item->{original_id} = $user_identifier;
-                        $user_identifier =~ tr/:()[]/_____/; # replace any bad characters with underscores
-                        print STDERR "replacing identifier $seq_item->{original_id} with $user_identifier\n";
+                    if ($user_identifier =~ tr/[]():',/_______/) {
+                        print STDERR "replacing identifier $seq_item->{id} with $user_identifier\n";
+                        $seq_item->{id} = $user_identifier;
                     }
-                    if (exists $master_seq_ids{$user_identifier}) {
-                        while (exists $master_seq_ids{$user_identifier}) {
-                            $user_identifier .= "_d" # make unique by appending tag
+                    if (exists $master_seq_ids{$seq_item->{id}}) {
+                        while (exists $master_seq_ids{$seq_item->{id}}) {
+                            $seq_item->{id} .= "_d" # make unique by appending tag
                         }
                     }
-                    $seq_item->{id} = $user_identifier;
-                    $master_seq_ids{$user_identifier} = 1; #remember this identifier and protect if from collisions
+                    $master_seq_ids{$seq_item->{id}} = 1; #remember this identifier and protect if from collisions
                     if ($user_identifier =~ /^fig\|\d+\.\d+\..{3}\.\d+$/) {
                         print "try user identifier as patric_id: $user_identifier\n" if $debug;
                         $seq_item->{database_link} = 'patric_id';
@@ -733,8 +732,8 @@ sub build_tree {
 sub select_sequence_identifier {
     # fixed prioritization of elements to favor for best sequence identifier
     my ($seq_data) = @_;
+    return $seq_data->{adjusted_id} if exists $seq_data->{adjusted_id};
     return $seq_data->{sequence_id} if exists $seq_data->{sequence_id};
-    return $seq_data->{altered_id} if exists $seq_data->{altered_id};
     return $seq_data->{feature_id} if exists $seq_data->{feature_id};
     return $seq_data->{patric_id} if exists $seq_data->{patric_id};
     return $seq_data->{genome_id} if exists $seq_data->{genome_id};
