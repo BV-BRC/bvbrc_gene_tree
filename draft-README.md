@@ -17,7 +17,7 @@ This module is a component of the BV-BRC build system. It is designed to fit int
 the components of the BV-BRC. More documentation is available [here](https://github.com/BV-BRC/dev_container/tree/master/README.md).
 
 This module provides the following application specfication(s):
-* [app_specs/app_specs/GeneTree](app_specs/GeneTree)
+* [GeneTree](app_specs/GeneTree.md)
 
 
 ## See also
