@@ -22,6 +22,7 @@ This module provides the following application specfication(s):
 
 ## See also
 
+* [Gene Tree Service Quick Reference](https://www.bv-brc.org/docs/quick_references/services/genetree.html)
 * [Gene Tree Service](https://www.bv-brc.org/docs/https://bv-brc.org/app/GeneTree.html)
 * [Gene Tree Tutorial](https://www.bv-brc.org/docs//tutorial/genetree/genetree.html)
 
