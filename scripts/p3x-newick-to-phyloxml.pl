@@ -182,7 +182,7 @@ if ($opt->annotationtsv) {
             chomp;
             my @fields = split("\t");
             my $id = shift @fields; # remove first element
-            print STDERR "got metadatafields for $id\n" if $debug;
+            print STDERR " metadata for $id:" if $debug;
             for my $i (0 .. $#header) {
                 my $column_head = $header[$i];
                 my $val = $fields[$i];

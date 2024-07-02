@@ -348,7 +348,7 @@ sub get_phyloxml_properties {
     my ($self, $tip_label) = @_;
     # called from a Phylo_Node, allows keeping metadata in Phylo_Tree annotation - shared storage with svg output
     # allows has to have enties titled 'applies_to' and 'provenance' and 'data_type' to enable special cases other than 'node', 'BVBRC' and 'xsd:string'
-    print STDERR "get_phyloxml_properties for $tip_label\n" if $debug;
+    #print STDERR "get_phyloxml_properties for $tip_label\n" if $debug;
     my @retval = ();
     for my $ref (sort keys %{$self->{_annotation}}) {
         my $provenance = "BVBRC"; #default

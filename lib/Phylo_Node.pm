@@ -248,6 +248,7 @@ sub add_phyloxml_property {
 
 sub xml_sanitize {
     my ($string) = @_;
+    return "" unless $string;
     $string =~ s/</&lt;/g;
     $string =~ s/>/&gt;/g;
     $string =~ s/&(?!(#\d{1,3}|lt|gt|amp);)/&amp;/g;
@@ -258,7 +259,6 @@ sub xml_sanitize {
 
 sub write_phyloXML {
     my ($self, $indent) = @_;
-    print STDERR "node:write_phyloXML, self keys = ", join(", ", keys %{$self}) if $debug > 2;
     my $retval = $indent . "<clade>\n";
     if (exists $self->{'_name'} and $self->{'_name'}) {
         my $name = xml_sanitize($self->{'_name'});
@@ -270,6 +270,7 @@ sub write_phyloXML {
     if (exists $self->{_support}) {
         $retval .= $indent . " <confidence type=\"" . xml_sanitize($self->{_tree}->get_support_type()) . "\">" . $self->{_support} . "</confidence>\n";
     }
+    print STDERR "node:write_phyloXML " if $debug > 2;
     if (exists $self->{_name}) {
         my $property_list = $self->{_tree}->get_phyloxml_properties($self->{_name});
         if ($property_list and scalar @$property_list) {
@@ -278,12 +279,15 @@ sub write_phyloXML {
                 $retval .= $indent . " " . $property . "\n";
             }
         }
+        print STDERR " $self->{_name}, num_properties=" . scalar @$property_list if $debug > 2;
     }
 	if (exists $self->{'_children'}) {
 		for my $child (@{$self->{'_children'}}) {
 			$retval .= $child->write_phyloXML($indent . " ");
 		}
+        print STDERR " num_children=" . scalar @{$self->{'_children'}} if $debug > 2;
 	}
+    print STDERR "\n" if $debug > 2;
     $retval .= $indent . "</clade>\n";
     return $retval;
 }
